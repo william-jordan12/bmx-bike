@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
-import { ArrowRight, Lock, ShieldAlert, UserRound } from "lucide-react";
+import { ArrowRight, ShieldAlert, UserRound } from "lucide-react";
+import PasswordField from "@/components/admin/password-field";
 
 export default function AdminLoginForm() {
   const router = useRouter();
@@ -39,7 +40,7 @@ export default function AdminLoginForm() {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username: username.trim(), password })
       });
       const data = await response.json();
 
@@ -88,32 +89,33 @@ export default function AdminLoginForm() {
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
                 autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 required
                 className="h-12 w-full bg-transparent text-sm text-white outline-none placeholder:text-[#5f5b55]"
                 placeholder="admin"
               />
             </span>
           </label>
-          <label className="block">
-            <span className="eyebrow text-[#8d887f]">Password</span>
-            <span className="mt-2 flex items-center gap-3 border border-[#3c3934] bg-white/5 px-3 focus-within:border-[var(--orange)]">
-              <Lock className="h-4 w-4 shrink-0 text-[#77736c]" />
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoComplete="current-password"
-                required
-                className="h-12 w-full bg-transparent text-sm text-white outline-none placeholder:text-[#5f5b55]"
-                placeholder="Your password"
-              />
-            </span>
-          </label>
+
+          <PasswordField
+            label="Password"
+            value={password}
+            onChange={setPassword}
+            placeholder="Your password"
+            invalid={Boolean(error)}
+            variant="dark"
+          />
 
           {error ? (
-            <p className="border border-[#5a2b1c] bg-[#2a1710] px-3 py-2 text-xs font-semibold text-[#ffb59a]" role="alert">
-              {error}
-            </p>
+            <div className="border border-[#5a2b1c] bg-[#2a1710] px-3 py-2" role="alert">
+              <p className="text-xs font-semibold text-[#ffb59a]">{error}</p>
+              <p className="mt-1.5 text-[11px] leading-4 text-[#c39a88]">
+                Passwords are case sensitive. Use the eye icon to check what you typed, or reset it with{" "}
+                <code className="font-bold">npm run admin:reset-password</code> if you are locked out.
+              </p>
+            </div>
           ) : null}
 
           <button

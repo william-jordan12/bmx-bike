@@ -29,6 +29,7 @@ import {
   X
 } from "lucide-react";
 import { DEFAULT_SITE_SETTINGS, type SiteSettings } from "@/lib/site-settings";
+import PasswordField from "@/components/admin/password-field";
 
 type Admin = { id: string; username: string };
 type Tab = "overview" | "categories" | "orders" | "account" | "settings";
@@ -926,41 +927,33 @@ function AccountTab({
       />
       <form onSubmit={savePassword} className="border border-[#ddd9d1] bg-[var(--cream)] p-5">
         <div className="grid gap-4 md:grid-cols-3">
-          <label className="block">
-            <span className="eyebrow text-[#8d887f]">Current password</span>
-            <input
-              type="password"
-              value={currentPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
-              required
-              autoComplete="current-password"
-              className="mt-2 h-11 w-full border border-[#d8d3ca] bg-white px-3 text-sm outline-none focus:border-[var(--ink)]"
-            />
-          </label>
-          <label className="block">
-            <span className="eyebrow text-[#8d887f]">New password</span>
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(event) => setNewPassword(event.target.value)}
-              required
-              minLength={10}
-              autoComplete="new-password"
-              className="mt-2 h-11 w-full border border-[#d8d3ca] bg-white px-3 text-sm outline-none focus:border-[var(--ink)]"
-            />
-          </label>
-          <label className="block">
-            <span className="eyebrow text-[#8d887f]">Confirm new password</span>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              required
-              minLength={10}
-              autoComplete="new-password"
-              className="mt-2 h-11 w-full border border-[#d8d3ca] bg-white px-3 text-sm outline-none focus:border-[var(--ink)]"
-            />
-          </label>
+          <PasswordField
+            label="Current password"
+            value={currentPassword}
+            onChange={setCurrentPassword}
+            autoComplete="current-password"
+            required
+          />
+          <PasswordField
+            label="New password"
+            value={newPassword}
+            onChange={setNewPassword}
+            autoComplete="new-password"
+            minLength={10}
+            required
+          />
+          <PasswordField
+            label="Confirm new password"
+            value={confirmPassword}
+            onChange={setConfirmPassword}
+            autoComplete="new-password"
+            minLength={10}
+            required
+            invalid={Boolean(confirmPassword) && confirmPassword !== newPassword}
+            hint={
+              confirmPassword && confirmPassword !== newPassword ? "Passwords do not match yet." : undefined
+            }
+          />
         </div>
         <button
           type="submit"
