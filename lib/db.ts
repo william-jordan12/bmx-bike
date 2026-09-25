@@ -102,7 +102,58 @@ const SCHEMA_SQL = [
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-  )`
+  )`,
+  `CREATE TABLE IF NOT EXISTS bmx_products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    brand TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    price NUMERIC(10,2) NOT NULL DEFAULT 0,
+    compare_at_price NUMERIC(10,2),
+    category TEXT NOT NULL DEFAULT 'Freestyle',
+    badge TEXT NOT NULL DEFAULT '',
+    wheel_size TEXT NOT NULL DEFAULT '',
+    top_tube TEXT NOT NULL DEFAULT '',
+    frame_material TEXT NOT NULL DEFAULT '',
+    skill_level TEXT NOT NULL DEFAULT '',
+    rating NUMERIC(2,1) NOT NULL DEFAULT 0,
+    review_count INTEGER NOT NULL DEFAULT 0,
+    image TEXT NOT NULL DEFAULT '',
+    gallery TEXT[] NOT NULL DEFAULT '{}',
+    riding_style TEXT[] NOT NULL DEFAULT '{}',
+    colors TEXT[] NOT NULL DEFAULT '{}',
+    sizes TEXT[] NOT NULL DEFAULT '{}',
+    description TEXT NOT NULL DEFAULT '',
+    specs JSONB NOT NULL DEFAULT '{}'::jsonb,
+    stock INTEGER NOT NULL DEFAULT 0,
+    active BOOLEAN NOT NULL DEFAULT true,
+    featured BOOLEAN NOT NULL DEFAULT false,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS badge TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS wheel_size TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS top_tube TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS frame_material TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS skill_level TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS rating NUMERIC(2,1) NOT NULL DEFAULT 0`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS review_count INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS image TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS gallery TEXT[] NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS riding_style TEXT[] NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS colors TEXT[] NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS sizes TEXT[] NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS specs JSONB NOT NULL DEFAULT '{}'::jsonb`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS stock INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT true`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS featured BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS bmx_products_slug_key ON bmx_products(slug)`,
+  `CREATE INDEX IF NOT EXISTS bmx_products_active_idx ON bmx_products(active)`,
+  `CREATE INDEX IF NOT EXISTS bmx_products_category_idx ON bmx_products(category)`
 ];
 
 const DEFAULT_CATEGORIES: ReadonlyArray<{ slug: string; name: string; description: string }> = [
@@ -281,6 +332,7 @@ async function runInit(): Promise<void> {
     await seedAdmin(client);
     await seedCategories(client);
     await seedSettings(client);
+    await seedProducts(client);
     await seedOrders(client);
   } finally {
     client.release();
@@ -319,6 +371,50 @@ async function seedSettings(client: PoolClient): Promise<void> {
       [key, value]
     );
   }
+}
+
+async function seedProducts(client: PoolClient): Promise<void> {
+  const countResult = await client.query(`SELECT COUNT(*)::int AS n FROM bmx_products`);
+  if (Number(countResult.rows[0].n) > 0) return;
+
+  for (const [index, bike] of catalog.entries()) {
+    await client.query(
+      `INSERT INTO bmx_products (
+         slug, name, brand, model, price, compare_at_price, category, badge,
+         wheel_size, top_tube, frame_material, skill_level, rating, review_count,
+         image, gallery, riding_style, colors, sizes, description, specs,
+         stock, active, featured, sort_order
+       ) VALUES (
+         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,true,true,$23
+       ) ON CONFLICT (slug) DO NOTHING`,
+      [
+        bike.id,
+        bike.name,
+        bike.brand,
+        bike.model,
+        bike.price.toFixed(2),
+        bike.compareAtPrice ? bike.compareAtPrice.toFixed(2) : null,
+        bike.category,
+        bike.badge,
+        bike.wheelSize,
+        bike.topTube,
+        bike.frameMaterial,
+        bike.skillLevel,
+        bike.rating,
+        bike.reviewCount,
+        bike.image,
+        bike.gallery,
+        bike.ridingStyle,
+        bike.colors,
+        bike.sizes,
+        bike.description,
+        JSON.stringify(bike.specs),
+        index < 4 ? 8 - index : 4,
+        index
+      ]
+    );
+  }
+  console.log(`seedProducts imported ${catalog.length} bikes from data/bmx_bikes.json`);
 }
 
 async function seedOrders(client: PoolClient): Promise<void> {

@@ -35,7 +35,7 @@ import bmxBikes from "@/data/bmx_bikes.json";
 import { DEFAULT_SITE_SETTINGS, isSocialLink, type SiteSettings } from "@/lib/site-settings";
 import type { BmxBike } from "@/lib/types";
 
-const products = bmxBikes as BmxBike[];
+const fallbackProducts = bmxBikes as BmxBike[];
 
 const createPriceFormatter = (currency: string) =>
   new Intl.NumberFormat("en-US", {
@@ -378,6 +378,7 @@ export default function Storefront() {
   const [checkoutPending, setCheckoutPending] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "", address: "", city: "", country: "", notes: "" });
+  const [products, setProducts] = useState<BmxBike[]>(fallbackProducts);
 
   const formatPrice = useMemo(() => {
     const formatter = createPriceFormatter(siteSettings.currency);
@@ -403,6 +404,19 @@ export default function Storefront() {
       .then((response) => (response.ok ? response.json() : null))
       .then((data: { settings?: SiteSettings } | null) => {
         if (active && data?.settings) setSiteSettings(data.settings);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/products", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { products?: BmxBike[] } | null) => {
+        if (active && data?.products && data.products.length > 0) setProducts(data.products);
       })
       .catch(() => undefined);
     return () => {
@@ -463,7 +477,7 @@ export default function Storefront() {
       if (sortBy === "newest") return b.id.localeCompare(a.id);
       return products.indexOf(a) - products.indexOf(b);
     });
-  }, [activeCategory, brand, frameMaterial, priceMax, searchTerm, skillLevel, sortBy, styleFilter, topTubeFilter, wheelSize]);
+  }, [activeCategory, brand, frameMaterial, priceMax, products, searchTerm, skillLevel, sortBy, styleFilter, topTubeFilter, wheelSize]);
 
   const cartCount = cartItems.reduce((total, item) => total + item.quantity, 0);
   const cartSubtotal = cartItems.reduce((total, item) => {

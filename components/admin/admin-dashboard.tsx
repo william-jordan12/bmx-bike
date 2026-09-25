@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   BadgeCheck,
+  Bike,
   Boxes,
   ChevronDown,
   ExternalLink,
@@ -30,9 +31,10 @@ import {
 } from "lucide-react";
 import { DEFAULT_SITE_SETTINGS, type SiteSettings } from "@/lib/site-settings";
 import PasswordField from "@/components/admin/password-field";
+import ProductsTab from "@/components/admin/products-tab";
 
 type Admin = { id: string; username: string };
-type Tab = "overview" | "categories" | "orders" | "account" | "settings";
+type Tab = "overview" | "products" | "categories" | "orders" | "account" | "settings";
 type Notice = { kind: "success" | "error"; text: string } | null;
 
 type Category = {
@@ -76,6 +78,7 @@ const ORDER_STATUSES: OrderStatus[] = ["pending", "confirmed", "shipped", "deliv
 
 const TABS: ReadonlyArray<{ id: Tab; label: string; icon: typeof LayoutDashboard }> = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "products", label: "Products", icon: Bike },
   { id: "categories", label: "Categories", icon: Boxes },
   { id: "orders", label: "Orders", icon: ShoppingBag },
   { id: "account", label: "Admin account", icon: UserRound },
@@ -306,6 +309,9 @@ export default function AdminDashboard() {
 
         <main className="px-5 py-6 lg:px-8 lg:py-8">
           {tab === "overview" ? <OverviewTab orders={orders} categories={categories} currency={settings.currency} /> : null}
+      {tab === "products" ? (
+        <ProductsTab notify={notify} categories={categories.length > 0 ? categories.map((item) => item.name) : ["Freestyle", "Race", "Cruiser", "Kids"]} />
+      ) : null}
           {tab === "categories" ? (
             <CategoriesTab categories={categories} onChange={setCategories} notify={notify} />
           ) : null}

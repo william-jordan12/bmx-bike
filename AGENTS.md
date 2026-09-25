@@ -27,9 +27,16 @@ Use `npm.cmd`, not `npm`; PowerShell blocks the bare shim.
 ## Admin area
 - `/admin` needs a Postgres database. Without `DATABASE_URL` the storefront still works and admin routes return 503.
 - `ADMIN_INITIAL_PASSWORD` is required in production; the dev fallback is for local use only.
-- Schema, admin row, starter categories, and demo orders self-seed on the first request that touches the database.
+- Schema, admin row, starter categories, demo orders, and the 10 bikes from `data/bmx_bikes.json` self-seed on the first request that touches the database.
+- Products live in `bmx_products`; `data/bmx_bikes.json` is only the first-run seed plus the storefront's offline fallback.
 - Admin auth: scrypt hashes, one session per admin row, `bmx_admin_session` HttpOnly cookie. Password changes rotate the session and sign out other devices.
 - Local credentials live in `.env.local` (gitignored). Rotate the Neon password if a connection string was ever shared in chat.
+
+## Product images
+- Drag-and-drop uploads go through `app/api/admin/upload` -> `lib/storage.ts`, which sniffs magic bytes (never trust the filename) and caps files at 8MB.
+- Default driver is `public/uploads` on local disk: fine for development, wiped on serverless redeploy.
+- Set `CLOUDINARY_CLOUD_NAME` and `CLOUDINARY_UPLOAD_PRESET` to make uploads permanent. `res.cloudinary.com` is already allowed in `next.config.ts`; add any other image host there too.
+- `GET /api/admin/upload` reports the active driver so the dashboard can warn about non-persistent storage.
 
 ## Deploy prerequisites
 - Host env vars: `DATABASE_URL`, and `ADMIN_INITIAL_PASSWORD` only for a brand new database.
