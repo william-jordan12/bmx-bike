@@ -12,9 +12,12 @@ import {
   Heart,
   LayoutGrid,
   List,
+  Mail,
   MapPin,
   Menu,
+  MessageCircle,
   Minus,
+  Phone,
   Plus,
   RotateCcw,
   Ruler,
@@ -29,15 +32,16 @@ import {
   X
 } from "lucide-react";
 import bmxBikes from "@/data/bmx_bikes.json";
+import { DEFAULT_SITE_SETTINGS, isSocialLink, type SiteSettings } from "@/lib/site-settings";
 import type { BmxBike } from "@/lib/types";
 
 const products = bmxBikes as BmxBike[];
-const priceFormatter = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD"
-});
 
-const formatPrice = (price: number) => priceFormatter.format(price);
+const createPriceFormatter = (currency: string) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currency || "USD"
+  });
 
 const categoryOptions = [
   { label: "All bikes", value: "All" },
@@ -272,12 +276,13 @@ type ProductCardProps = {
   bike: BmxBike;
   wishlisted: boolean;
   viewMode: "grid" | "list";
+  formatPrice: (price: number) => string;
   onToggleWishlist: (bike: BmxBike) => void;
   onQuickView: (bike: BmxBike) => void;
   onAdd: (bike: BmxBike) => void;
 };
 
-function ProductCard({ bike, wishlisted, viewMode, onToggleWishlist, onQuickView, onAdd }: ProductCardProps) {
+function ProductCard({ bike, wishlisted, viewMode, formatPrice, onToggleWishlist, onQuickView, onAdd }: ProductCardProps) {
   return (
     <article className={`product-card group overflow-hidden border border-[#dedad2] bg-white ${viewMode === "list" ? "product-card-list" : ""}`}>
       <div className="product-media relative aspect-[4/3] overflow-hidden bg-[#e8e4dc]">
@@ -368,6 +373,42 @@ export default function Storefront() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  const [siteSettings, setSiteSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutPending, setCheckoutPending] = useState(false);
+  const [checkoutError, setCheckoutError] = useState("");
+  const [customer, setCustomer] = useState({ name: "", email: "", phone: "", address: "", city: "", country: "", notes: "" });
+
+  const formatPrice = useMemo(() => {
+    const formatter = createPriceFormatter(siteSettings.currency);
+    return (price: number) => formatter.format(price);
+  }, [siteSettings.currency]);
+
+  const socialLinks = useMemo(
+    () =>
+      [
+        { key: "instagram", label: "Instagram", short: "ig" },
+        { key: "tiktok", label: "TikTok", short: "tk" },
+        { key: "facebook", label: "Facebook", short: "fb" },
+        { key: "youtube", label: "YouTube", short: "yt" }
+      ]
+        .map((social) => ({ ...social, href: siteSettings[social.key as keyof SiteSettings] }))
+        .filter((social) => isSocialLink(social.href)),
+    [siteSettings]
+  );
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/site-settings", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { settings?: SiteSettings } | null) => {
+        if (active && data?.settings) setSiteSettings(data.settings);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!notice) return;
@@ -458,7 +499,7 @@ export default function Storefront() {
         description: bike.description,
         brand: { "@type": "Brand", name: bike.brand },
         aggregateRating: { "@type": "AggregateRating", ratingValue: bike.rating, reviewCount: bike.reviewCount },
-        offers: { "@type": "Offer", priceCurrency: "USD", price: bike.price, availability: "https://schema.org/InStock" }
+          offers: { "@type": "Offer", priceCurrency: siteSettings.currency || "USD", price: bike.price, availability: "https://schema.org/InStock" }
       }
     }))
   };
@@ -514,6 +555,44 @@ export default function Storefront() {
 
   const removeFromCart = (item: CartItem) => {
     setCartItems((current) => current.filter((cartItem) => cartItem !== item));
+  };
+
+  const placeOrder = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setCheckoutError("");
+    setCheckoutPending(true);
+
+    try {
+      const response = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...customer,
+          items: cartItems.map((item) => ({
+            productId: item.productId,
+            color: item.color,
+            size: item.size,
+            quantity: item.quantity
+          }))
+        })
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        setCheckoutError(typeof data.error === "string" ? data.error : "We could not place that order.");
+        return;
+      }
+
+      setCartItems([]);
+      setCheckoutOpen(false);
+      setCartOpen(false);
+      setCustomer({ name: "", email: "", phone: "", address: "", city: "", country: "", notes: "" });
+      setNotice(`Order ${data.order.reference} confirmed — check your email for updates`);
+    } catch {
+      setCheckoutError("Network error. Please try again.");
+    } finally {
+      setCheckoutPending(false);
+    }
   };
 
   const submitSearch = (event: React.FormEvent<HTMLFormElement>) => {
@@ -749,7 +828,7 @@ export default function Storefront() {
               </div>
               {filteredProducts.length ? (
                 <div className={`grid gap-4 ${viewMode === "grid" ? "sm:grid-cols-2 xl:grid-cols-3" : "grid-cols-1"}`}>
-                  {filteredProducts.map((bike) => <ProductCard key={bike.id} bike={bike} wishlisted={wishlist.includes(bike.id)} viewMode={viewMode} onToggleWishlist={toggleWishlist} onQuickView={openProduct} onAdd={addToCart} />)}
+                  {filteredProducts.map((bike) => <ProductCard key={bike.id} bike={bike} wishlisted={wishlist.includes(bike.id)} viewMode={viewMode} formatPrice={formatPrice} onToggleWishlist={toggleWishlist} onQuickView={openProduct} onAdd={addToCart} />)}
                 </div>
               ) : (
                 <div className="flex min-h-[360px] flex-col items-center justify-center border border-dashed border-[#cfc9bf] bg-white px-6 text-center">
@@ -812,10 +891,10 @@ export default function Storefront() {
       <footer id="support" className="bg-[#151515] text-white">
         <div className="mx-auto max-w-[1440px] px-5 py-12 lg:px-8 lg:py-16">
           <div className="grid gap-10 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
-            <div><a href="#top" className="font-display text-3xl">RIDE<span className="text-[var(--orange)]">{"//"}</span>BMX</a><p className="mt-4 max-w-xs text-sm leading-6 text-[#96918a]">The complete BMX edit for riders who keep moving.</p><div className="mt-6 flex gap-2"><a href="#support" aria-label="Instagram" className="flex h-9 w-9 items-center justify-center border border-[#3c3934] text-xs font-bold transition hover:border-[var(--orange)] hover:text-[var(--orange)]">ig</a><a href="#support" aria-label="TikTok" className="flex h-9 w-9 items-center justify-center border border-[#3c3934] text-xs font-bold transition hover:border-[var(--orange)] hover:text-[var(--orange)]">tk</a><a href="#support" aria-label="Email" className="flex h-9 w-9 items-center justify-center border border-[#3c3934] text-xs font-bold transition hover:border-[var(--orange)] hover:text-[var(--orange)]">@</a></div></div>
+            <div><a href="#top" className="font-display text-3xl">RIDE<span className="text-[var(--orange)]">{"//"}</span>BMX</a><p className="mt-4 max-w-xs text-sm leading-6 text-[#96918a]">The complete BMX edit for riders who keep moving.</p><div className="mt-6 flex flex-wrap gap-2">{socialLinks.map((social) => <a key={social.label} href={social.href} target="_blank" rel="noopener noreferrer" aria-label={social.label} className="flex h-9 w-9 items-center justify-center border border-[#3c3934] text-xs font-bold uppercase transition hover:border-[var(--orange)] hover:text-[var(--orange)]">{social.short}</a>)}<a href={`mailto:${siteSettings.contactEmail}`} aria-label="Email" className="flex h-9 w-9 items-center justify-center border border-[#3c3934] text-xs font-bold transition hover:border-[var(--orange)] hover:text-[var(--orange)]">@</a></div></div>
             <div><p className="eyebrow mb-4 text-[#ff7950]">Shop</p><div className="space-y-3 text-sm text-[#aaa59d]"><a href="#catalog" className="block transition hover:text-white">Complete BMX bikes</a><a href="#catalog" className="block transition hover:text-white">BMX parts</a><a href="#catalog" className="block transition hover:text-white">Clothing & softgoods</a><a href="#catalog" className="block transition hover:text-white">Brands we stock</a></div></div>
-            <div><p className="eyebrow mb-4 text-[#ff7950]">Help</p><div className="space-y-3 text-sm text-[#aaa59d]"><a href="#support" className="block transition hover:text-white">Contact the crew</a><a href="#support" className="block transition hover:text-white">Delivery information</a><a href="#support" className="block transition hover:text-white">Returns</a><a href="#support" className="block transition hover:text-white">Bike finder</a></div></div>
-            <div><p className="eyebrow mb-4 text-[#ff7950]">Come say hi</p><p className="text-sm leading-6 text-[#aaa59d]">Unit 4, The Yard<br />London, E9 7PY</p><p className="mt-4 flex items-center gap-2 text-sm text-white"><Headphones className="h-4 w-4 text-[var(--orange)]" /> Mon–Fri, 9–5</p></div>
+            <div><p className="eyebrow mb-4 text-[#ff7950]">Help</p><div className="space-y-3 text-sm text-[#aaa59d]"><a href={`mailto:${siteSettings.contactEmail}`} className="block transition hover:text-white">Contact the crew</a><a href="#support" className="block transition hover:text-white">Delivery information</a><a href="#support" className="block transition hover:text-white">Returns</a><a href="#support" className="block transition hover:text-white">Bike finder</a></div></div>
+            <div><p className="eyebrow mb-4 text-[#ff7950]">Come say hi</p><p className="flex items-start gap-2 text-sm leading-6 text-[#aaa59d]"><MapPin className="mt-1 h-4 w-4 shrink-0 text-[var(--orange)]" /><span>{siteSettings.address}</span></p><div className="mt-3 space-y-2 text-sm text-[#aaa59d]"><a href={`mailto:${siteSettings.contactEmail}`} className="flex items-center gap-2 transition hover:text-white"><Mail className="h-4 w-4 text-[var(--orange)]" /> {siteSettings.contactEmail}</a>{siteSettings.phone ? <a href={`tel:${siteSettings.phone.replace(/[^\d+]/g, "")}`} className="flex items-center gap-2 transition hover:text-white"><Phone className="h-4 w-4 text-[var(--orange)]" /> {siteSettings.phone}</a> : null}{siteSettings.whatsapp ? <a href={`https://wa.me/${siteSettings.whatsapp}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 transition hover:text-white"><MessageCircle className="h-4 w-4 text-[var(--orange)]" /> WhatsApp orders</a> : null}</div><p className="mt-4 flex items-center gap-2 text-sm text-white"><Headphones className="h-4 w-4 text-[var(--orange)]" /> Mon–Fri, 9–5</p></div>
           </div>
           <div className="mt-12 flex flex-col justify-between gap-3 border-t border-[#34312d] pt-5 text-[10px] font-bold uppercase tracking-[0.1em] text-[#77736c] sm:flex-row"><span>© 2026 RIDE{"//"}BMX</span><span>Made for the next line · All rights reserved</span></div>
         </div>
@@ -883,7 +962,35 @@ export default function Storefront() {
             <div className="no-scrollbar flex-1 overflow-y-auto px-5 py-5 sm:px-7">
               {cartItems.length ? <div className="space-y-5">{cartItems.map((item) => { const bike = products.find((product) => product.id === item.productId); if (!bike) return null; return <div key={`${item.productId}-${item.color}-${item.size}`} className="flex gap-3 border-b border-[#dedad2] pb-5"><div className="relative h-24 w-24 shrink-0 overflow-hidden bg-[#e8e4dc]"><Image src={bike.image} alt={bike.name} fill sizes="96px" className="object-cover" /></div><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-3"><div><p className="eyebrow text-[#8d887f]">{bike.brand}</p><h3 className="mt-1 text-sm font-bold leading-snug">{bike.name}</h3><p className="mt-1 text-[11px] text-[#858078]">{item.color} · {item.size}</p></div><button type="button" onClick={() => removeFromCart(item)} className="text-[#9a958c] transition hover:text-[var(--orange)]" aria-label={`Remove ${bike.name}`}><X className="h-4 w-4" /></button></div><div className="mt-3 flex items-center justify-between"><div className="flex items-center border border-[#d8d3ca] bg-white"><button type="button" onClick={() => updateQuantity(item, "decrease")} className="flex h-7 w-7 items-center justify-center text-[#77726b] hover:text-[var(--orange)]" aria-label="Decrease quantity"><Minus className="h-3 w-3" /></button><span className="w-7 text-center text-xs font-bold">{item.quantity}</span><button type="button" onClick={() => updateQuantity(item, "increase")} className="flex h-7 w-7 items-center justify-center text-[#77726b] hover:text-[var(--orange)]" aria-label="Increase quantity"><Plus className="h-3 w-3" /></button></div><span className="text-sm font-extrabold">{formatPrice(bike.price * item.quantity)}</span></div></div></div>; })}</div> : <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center"><div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#f0ece5] text-[#9b968e]"><ShoppingBag className="h-7 w-7" /></div><h3 className="mt-5 text-lg font-bold">Your bag is empty</h3><p className="mt-2 max-w-xs text-sm leading-6 text-[#77726b]">Good things happen when you add a little more ride.</p><button type="button" onClick={() => setCartOpen(false)} className="mt-5 bg-[#151515] px-5 py-3 text-xs font-extrabold uppercase tracking-[0.1em] text-white">Keep shopping</button></div>}
             </div>
-            <div className="safe-bottom border-t border-[#dedad2] bg-white px-5 py-5 sm:px-7"><div className="flex items-center justify-between"><span className="text-sm font-semibold text-[#77726b]">Subtotal</span><span className="text-2xl font-extrabold">{formatPrice(cartSubtotal)}</span></div><p className="mt-1 text-[11px] text-[#96918a]">Shipping, taxes and discounts calculated at checkout.</p><button type="button" onClick={() => setNotice(cartItems.length ? "Checkout is ready for your next step" : "Your bag is waiting for a bike")} className="mt-5 flex h-12 w-full items-center justify-center gap-2 bg-[var(--orange)] text-xs font-extrabold uppercase tracking-[0.12em] text-white transition hover:bg-[#151515]">Checkout <ArrowRight className="h-4 w-4" /></button><div className="mt-3 flex items-center justify-center gap-2 text-[10px] font-semibold text-[#858078]"><ShieldCheck className="h-3.5 w-3.5 text-[var(--orange)]" /> Secure checkout · 100-day returns</div></div>
+            <div className="safe-bottom border-t border-[#dedad2] bg-white px-5 py-5 sm:px-7">
+              {checkoutOpen ? (
+                <form onSubmit={placeOrder} className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="eyebrow text-[#8d887f]">Checkout</p>
+                    <button type="button" onClick={() => { setCheckoutOpen(false); setCheckoutError(""); }} className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#77726b] hover:text-[var(--orange)]">Back to bag</button>
+                  </div>
+                  <input required value={customer.name} onChange={(event) => setCustomer({ ...customer, name: event.target.value })} placeholder="Full name" autoComplete="name" className="h-11 w-full border border-[#d8d3ca] px-3 text-sm outline-none focus:border-[var(--orange)]" />
+                  <input required type="email" value={customer.email} onChange={(event) => setCustomer({ ...customer, email: event.target.value })} placeholder="Email" autoComplete="email" className="h-11 w-full border border-[#d8d3ca] px-3 text-sm outline-none focus:border-[var(--orange)]" />
+                  <input value={customer.phone} onChange={(event) => setCustomer({ ...customer, phone: event.target.value })} placeholder="Phone (optional)" autoComplete="tel" className="h-11 w-full border border-[#d8d3ca] px-3 text-sm outline-none focus:border-[var(--orange)]" />
+                  <input required value={customer.address} onChange={(event) => setCustomer({ ...customer, address: event.target.value })} placeholder="Street address" autoComplete="street-address" className="h-11 w-full border border-[#d8d3ca] px-3 text-sm outline-none focus:border-[var(--orange)]" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <input required value={customer.city} onChange={(event) => setCustomer({ ...customer, city: event.target.value })} placeholder="City" autoComplete="address-level2" className="h-11 w-full border border-[#d8d3ca] px-3 text-sm outline-none focus:border-[var(--orange)]" />
+                    <input required value={customer.country} onChange={(event) => setCustomer({ ...customer, country: event.target.value })} placeholder="Country" autoComplete="country-name" className="h-11 w-full border border-[#d8d3ca] px-3 text-sm outline-none focus:border-[var(--orange)]" />
+                  </div>
+                  <textarea value={customer.notes} onChange={(event) => setCustomer({ ...customer, notes: event.target.value })} placeholder="Delivery notes (optional)" rows={2} className="w-full resize-none border border-[#d8d3ca] px-3 py-2 text-sm outline-none focus:border-[var(--orange)]" />
+                  {checkoutError ? <p className="border border-[#e8c3b8] bg-[#fdf1ec] px-3 py-2 text-xs font-semibold text-[#a5372a]" role="alert">{checkoutError}</p> : null}
+                  <div className="flex items-center justify-between border-t border-[#dedad2] pt-3"><span className="text-sm font-semibold text-[#77726b]">Total</span><span className="text-xl font-extrabold">{formatPrice(cartSubtotal)}</span></div>
+                  <button type="submit" disabled={checkoutPending} className="flex h-12 w-full items-center justify-center gap-2 bg-[var(--orange)] text-xs font-extrabold uppercase tracking-[0.12em] text-white transition hover:bg-[#151515] disabled:opacity-60">{checkoutPending ? "Placing order…" : "Place order"}<ArrowRight className="h-4 w-4" /></button>
+                </form>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between"><span className="text-sm font-semibold text-[#77726b]">Subtotal</span><span className="text-2xl font-extrabold">{formatPrice(cartSubtotal)}</span></div>
+                  <p className="mt-1 text-[11px] text-[#96918a]">Shipping, taxes and discounts calculated at checkout.</p>
+                  <button type="button" onClick={() => { if (cartItems.length) { setCheckoutError(""); setCheckoutOpen(true); } else { setNotice("Your bag is waiting for a bike"); } }} className="mt-5 flex h-12 w-full items-center justify-center gap-2 bg-[var(--orange)] text-xs font-extrabold uppercase tracking-[0.12em] text-white transition hover:bg-[#151515]">Checkout <ArrowRight className="h-4 w-4" /></button>
+                  <div className="mt-3 flex items-center justify-center gap-2 text-[10px] font-semibold text-[#858078]"><ShieldCheck className="h-3.5 w-3.5 text-[var(--orange)]" /> Secure checkout · 100-day returns</div>
+                </>
+              )}
+            </div>
           </aside>
         </div>
       ) : null}
