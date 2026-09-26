@@ -153,7 +153,30 @@ const SCHEMA_SQL = [
   `ALTER TABLE bmx_products ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,
   `CREATE UNIQUE INDEX IF NOT EXISTS bmx_products_slug_key ON bmx_products(slug)`,
   `CREATE INDEX IF NOT EXISTS bmx_products_active_idx ON bmx_products(active)`,
-  `CREATE INDEX IF NOT EXISTS bmx_products_category_idx ON bmx_products(category)`
+  `CREATE INDEX IF NOT EXISTS bmx_products_category_idx ON bmx_products(category)`,
+  `CREATE TABLE IF NOT EXISTS bmx_reviews (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID REFERENCES bmx_products(id) ON DELETE CASCADE,
+    product_slug TEXT NOT NULL,
+    product_name TEXT NOT NULL DEFAULT '',
+    author TEXT NOT NULL,
+    rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    title TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+    verified BOOLEAN NOT NULL DEFAULT false,
+    featured BOOLEAN NOT NULL DEFAULT false,
+    helpful INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`,
+  `ALTER TABLE bmx_reviews ADD COLUMN IF NOT EXISTS product_id UUID`,
+  `ALTER TABLE bmx_reviews ADD COLUMN IF NOT EXISTS product_name TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE bmx_reviews ADD COLUMN IF NOT EXISTS verified BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE bmx_reviews ADD COLUMN IF NOT EXISTS featured BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE bmx_reviews ADD COLUMN IF NOT EXISTS helpful INTEGER NOT NULL DEFAULT 0`,
+  `CREATE INDEX IF NOT EXISTS bmx_reviews_product_idx ON bmx_reviews(product_id)`,
+  `CREATE INDEX IF NOT EXISTS bmx_reviews_status_idx ON bmx_reviews(status)`
 ];
 
 const DEFAULT_CATEGORIES: ReadonlyArray<{ slug: string; name: string; description: string }> = [
@@ -176,6 +199,26 @@ const DEFAULT_CATEGORIES: ReadonlyArray<{ slug: string; name: string; descriptio
     slug: "kids",
     name: "Kids",
     description: "Smaller frames and light components for young riders getting started."
+  },
+  {
+    slug: "parts",
+    name: "Parts",
+    description: "Bars, cranks, forks, wheels and every other build component in stock."
+  },
+  {
+    slug: "clothing",
+    name: "Clothing",
+    description: "Tees, hoodies, caps and pads for warm-ups and cold sessions."
+  },
+  {
+    slug: "accessories",
+    name: "Accessories",
+    description: "Helmets, gloves, pumps, pegs and the small stuff that finishes the build."
+  },
+  {
+    slug: "brands",
+    name: "Brands",
+    description: "Every brand we stock, from park legends to race programme specialists."
   }
 ];
 

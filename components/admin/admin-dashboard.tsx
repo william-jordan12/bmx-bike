@@ -24,6 +24,7 @@ import {
   Search,
   Settings2,
   ShoppingBag,
+  Star,
   Trash2,
   UserRound,
   Wallet,
@@ -32,9 +33,10 @@ import {
 import { DEFAULT_SITE_SETTINGS, type SiteSettings } from "@/lib/site-settings";
 import PasswordField from "@/components/admin/password-field";
 import ProductsTab from "@/components/admin/products-tab";
+import ReviewsTab from "@/components/admin/reviews-tab";
 
 type Admin = { id: string; username: string };
-type Tab = "overview" | "products" | "categories" | "orders" | "account" | "settings";
+type Tab = "overview" | "products" | "categories" | "orders" | "reviews" | "account" | "settings";
 type Notice = { kind: "success" | "error"; text: string } | null;
 
 type Category = {
@@ -81,6 +83,7 @@ const TABS: ReadonlyArray<{ id: Tab; label: string; icon: typeof LayoutDashboard
   { id: "products", label: "Products", icon: Bike },
   { id: "categories", label: "Categories", icon: Boxes },
   { id: "orders", label: "Orders", icon: ShoppingBag },
+  { id: "reviews", label: "Reviews", icon: Star },
   { id: "account", label: "Admin account", icon: UserRound },
   { id: "settings", label: "Contact & social", icon: Settings2 }
 ];
@@ -316,7 +319,8 @@ export default function AdminDashboard() {
             <CategoriesTab categories={categories} onChange={setCategories} notify={notify} />
           ) : null}
           {tab === "orders" ? <OrdersTab orders={orders} setOrders={setOrders} notify={notify} currency={settings.currency} /> : null}
-          {tab === "account" ? <AccountTab admin={admin} setAdmin={setAdmin} notify={notify} /> : null}
+          {tab === "reviews" ? <ReviewsTab notify={notify} /> : null}
+      {tab === "account" ? <AccountTab admin={admin} setAdmin={setAdmin} notify={notify} /> : null}
           {tab === "settings" ? <SettingsTab settings={settings} setSettings={setSettings} notify={notify} /> : null}
         </main>
       </div>

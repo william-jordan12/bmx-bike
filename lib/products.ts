@@ -165,7 +165,7 @@ function cleanList(value: unknown, max = 12): string[] {
 
 export function validateProductInput(
   body: unknown,
-  options: { partial?: boolean } = {}
+  options: { partial?: boolean; validCategories?: string[] } = {}
 ): { ok: true; value: ProductInput } | { ok: false; error: string } {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, error: "Send the product as a JSON object." };
@@ -193,9 +193,16 @@ export function validateProductInput(
   }
 
   const categoryRaw = String(input.category ?? "Freestyle").trim();
-  const category = PRODUCT_CATEGORIES.includes(categoryRaw as ProductCategory)
-    ? categoryRaw
-    : "Freestyle";
+  const allowed = options.validCategories?.filter((value) => value.trim().length > 0);
+  const category =
+    allowed && allowed.length > 0
+      ? allowed.find((value) => value.toLowerCase() === categoryRaw.toLowerCase()) ?? ""
+      : PRODUCT_CATEGORIES.includes(categoryRaw as ProductCategory)
+        ? categoryRaw
+        : "Freestyle";
+  if (!category) {
+    return { ok: false, error: `Category must be one of: ${allowed?.join(", ")}.` };
+  }
 
   const rating = toNumber(input.rating, 0);
   if (rating < 0 || rating > 5) return { ok: false, error: "Rating must be between 0 and 5." };

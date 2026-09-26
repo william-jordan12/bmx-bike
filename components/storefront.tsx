@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
@@ -34,6 +35,7 @@ import {
 import bmxBikes from "@/data/bmx_bikes.json";
 import { DEFAULT_SITE_SETTINGS, isSocialLink, type SiteSettings } from "@/lib/site-settings";
 import type { BmxBike } from "@/lib/types";
+import ProductReviewSection from "@/components/product-review-section";
 
 const fallbackProducts = bmxBikes as BmxBike[];
 
@@ -43,13 +45,27 @@ const createPriceFormatter = (currency: string) =>
     currency: currency || "USD"
   });
 
-const categoryOptions = [
-  { label: "All bikes", value: "All" },
+const DEFAULT_CATEGORY_OPTIONS = [
+  { label: "All products", value: "All" },
   { label: "Freestyle", value: "Freestyle" },
   { label: "Race", value: "Race" },
   { label: "Cruiser", value: "Cruiser" },
   { label: "Kids", value: "Kids" }
 ];
+
+const CATEGORY_ORDER = [
+  "Freestyle",
+  "Race",
+  "Cruiser",
+  "Kids",
+  "Parts",
+  "Clothing",
+  "Accessories",
+  "Brands"
+];
+
+const BIKE_CATEGORIES = ["Freestyle", "Race", "Cruiser", "Kids"];
+const GEAR_CATEGORIES = ["Parts", "Clothing", "Accessories", "Brands"];
 
 const styleOptions = ["All styles", "Street", "Park", "Trails", "Big wheel"];
 const wheelSizeOptions = ["All sizes", '12"', '16"', '18"', '20"', '22"', '24"', '26"', '29"'];
@@ -94,6 +110,7 @@ type FilterPanelProps = {
   setBrand: (value: string) => void;
   priceMax: number;
   setPriceMax: (value: number) => void;
+  categoryOptions?: ReadonlyArray<{ label: string; value: string }>;
   onClear: () => void;
 };
 
@@ -114,6 +131,7 @@ function FilterPanel({
   setBrand,
   priceMax,
   setPriceMax,
+  categoryOptions = DEFAULT_CATEGORY_OPTIONS,
   onClear
 }: FilterPanelProps) {
   return (
@@ -379,6 +397,19 @@ export default function Storefront() {
   const [checkoutError, setCheckoutError] = useState("");
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "", address: "", city: "", country: "", notes: "" });
   const [products, setProducts] = useState<BmxBike[]>(fallbackProducts);
+  const [categoryOptions, setCategoryOptions] = useState<ReadonlyArray<{ label: string; value: string }>>(
+    DEFAULT_CATEGORY_OPTIONS
+  );
+
+  const bikeCategories = useMemo(
+    () => categoryOptions.filter((option) => BIKE_CATEGORIES.includes(option.value)),
+    [categoryOptions]
+  );
+
+  const gearCategories = useMemo(
+    () => categoryOptions.filter((option) => GEAR_CATEGORIES.includes(option.value)),
+    [categoryOptions]
+  );
 
   const formatPrice = useMemo(() => {
     const formatter = createPriceFormatter(siteSettings.currency);
@@ -423,6 +454,46 @@ export default function Storefront() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/categories", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { categories?: Array<{ name?: string }> } | null) => {
+        if (!active || !data?.categories) return;
+        const names = data.categories
+          .map((item) => String(item.name ?? "").trim())
+          .filter((name) => name.length > 0);
+        if (names.length === 0) return;
+
+        const ordered = [
+          ...CATEGORY_ORDER.filter((name) => names.some((value) => value.toLowerCase() === name.toLowerCase())),
+          ...names.filter((name) => !CATEGORY_ORDER.includes(name))
+        ];
+
+        setCategoryOptions([
+          { label: "All products", value: "All" },
+          ...ordered.map((name) => ({ label: name, value: name }))
+        ]);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      const requested = new URLSearchParams(window.location.search).get("category");
+      if (!requested) return;
+      const match = categoryOptions.find(
+        (option) => option.value.toLowerCase() === requested.trim().toLowerCase()
+      );
+      if (!match) return;
+      setActiveCategory(match.value);
+      document.getElementById("catalog")?.scrollIntoView({ behavior: "smooth" });
+    })();
+  }, [categoryOptions]);
 
   useEffect(() => {
     if (!notice) return;
@@ -683,18 +754,42 @@ export default function Storefront() {
                 Complete BMX Bikes <ChevronDown className="h-3.5 w-3.5 transition group-hover:rotate-180" />
               </a>
               <div className="pointer-events-none absolute left-0 top-full z-20 w-56 translate-y-2 border border-[#dedad2] bg-white p-2 opacity-0 shadow-xl transition group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
-                {categoryOptions.slice(1).map((option) => (
+                {bikeCategories.map((option) => (
                   <a key={option.value} href="#catalog" className="flex items-center justify-between px-3 py-2.5 text-xs font-semibold text-[#5d5952] transition hover:bg-[#f7f5f0] hover:text-[var(--orange)]">
                     {option.label}<ChevronRight className="h-3 w-3" />
                   </a>
                 ))}
               </div>
             </div>
+            {gearCategories.length > 0 ? (
+              <div className="group relative">
+                <Link href="/shop" className="flex h-11 items-center gap-1 text-xs font-bold uppercase tracking-[0.08em] text-[#615d56] transition hover:text-[var(--orange)]">
+                  Shop<ChevronDown className="h-3 w-3" />
+                </Link>
+                <div className="pointer-events-none absolute left-0 top-full z-20 w-56 translate-y-2 border border-[#dedad2] bg-white p-2 opacity-0 shadow-xl transition group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100">
+                  {gearCategories.map((option) => (
+                    <Link
+                      key={option.value}
+                      href={`/#catalog?category=${encodeURIComponent(option.value)}`}
+                      className="flex items-center justify-between px-3 py-2.5 text-xs font-semibold text-[#5d5952] transition hover:bg-[#f7f5f0] hover:text-[var(--orange)]"
+                    >
+                      {option.label}<ChevronRight className="h-3 w-3" />
+                    </Link>
+                  ))}
+                  <Link href="/shop" className="mt-1 flex items-center justify-between border-t border-[#e0dcd4] px-3 py-2.5 text-xs font-extrabold uppercase tracking-[0.1em] text-[var(--orange)]">
+                    All departments<ChevronRight className="h-3 w-3" />
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <Link href="/shop" className="flex h-11 items-center gap-1 text-xs font-bold uppercase tracking-[0.08em] text-[#615d56] transition hover:text-[var(--orange)]">
+                Shop
+              </Link>
+            )}
+            <Link href="/reviews" className="flex h-11 items-center gap-1 text-xs font-bold uppercase tracking-[0.08em] text-[#615d56] transition hover:text-[var(--orange)]">
+              Reviews<span className="hidden text-[9px] font-normal normal-case tracking-normal text-[#aaa59c] xl:inline">Rider stories</span>
+            </Link>
             {[
-              ["Parts", "Precision upgrades"],
-              ["Clothing", "Ride in comfort"],
-              ["Accessories", "Finish the setup"],
-              ["Brands", "Meet the crew"],
               ["Outlet / Sale", "Good deals"]
             ].map(([label, sublabel]) => (
               <a key={label} href="#catalog" className="flex h-11 items-center gap-1 text-xs font-bold uppercase tracking-[0.08em] text-[#615d56] transition hover:text-[var(--orange)]">
@@ -715,22 +810,35 @@ export default function Storefront() {
             </div>
             <p className="eyebrow mb-3 text-[#8d887f]">Shop</p>
             <a href="#catalog" onClick={() => setNavOpen(false)} className="flex items-center justify-between border-b border-[#e0dcd4] py-4 text-lg font-bold">Complete BMX Bikes <ChevronRight className="h-4 w-4 text-[var(--orange)]" /></a>
-            {categoryOptions.slice(1).map((option) => (
+            {bikeCategories.map((option) => (
               <a key={option.value} href="#catalog" onClick={() => { setActiveCategory(option.value); setNavOpen(false); }} className="flex items-center justify-between border-b border-[#e0dcd4] py-3 text-sm font-semibold text-[#615d56]">
                 {option.label}<ChevronRight className="h-3.5 w-3.5" />
               </a>
             ))}
-            {[
-              ["Parts", "#catalog"],
-              ["Clothing", "#catalog"],
-              ["Accessories", "#catalog"],
-              ["Brands", "#catalog"],
-              ["Outlet / Sale", "#catalog"]
-            ].map(([label, href]) => (
-              <a key={label} href={href} onClick={() => setNavOpen(false)} className="flex items-center justify-between border-b border-[#e0dcd4] py-4 text-sm font-bold text-[#282725]">
-                {label}<ChevronRight className="h-4 w-4 text-[#aaa59c]" />
-              </a>
-            ))}
+            {gearCategories.length > 0 ? (
+              <>
+                <p className="eyebrow mb-2 mt-6 text-[#8d887f]">Parts &amp; apparel</p>
+                {gearCategories.map((option) => (
+                  <Link
+                    key={option.value}
+                    href={`/#catalog?category=${encodeURIComponent(option.value)}`}
+                    onClick={() => setNavOpen(false)}
+                    className="flex items-center justify-between border-b border-[#e0dcd4] py-3 text-sm font-semibold text-[#615d56]"
+                  >
+                    {option.label}<ChevronRight className="h-3.5 w-3.5" />
+                  </Link>
+                ))}
+              </>
+            ) : null}
+            <Link href="/shop" onClick={() => setNavOpen(false)} className="mt-4 flex items-center justify-between border-2 border-[var(--ink)] px-4 py-3.5 text-sm font-extrabold uppercase tracking-[0.12em] text-[var(--ink)]">
+              Shop<ArrowRight className="h-4 w-4" />
+            </Link>
+            <Link href="/reviews" onClick={() => setNavOpen(false)} className="flex items-center justify-between border-b border-[#e0dcd4] py-4 text-sm font-bold text-[#282725]">
+              Reviews<ChevronRight className="h-4 w-4 text-[#aaa59c]" />
+            </Link>
+            <a href="#catalog" onClick={() => { setActiveCategory("All"); setNavOpen(false); }} className="flex items-center justify-between border-b border-[#e0dcd4] py-4 text-sm font-bold text-[#282725]">
+              Outlet / Sale<ChevronRight className="h-4 w-4 text-[#aaa59c]" />
+            </a>
             <div className="mt-8 bg-[#151515] p-5 text-white">
               <p className="eyebrow text-[#ff7950]">Need a hand?</p>
               <p className="mt-2 text-sm font-semibold">Our crew knows BMX. Talk to a real rider.</p>
@@ -820,7 +928,7 @@ export default function Storefront() {
           <div className="grid gap-10 lg:grid-cols-[236px_minmax(0,1fr)]">
             <aside className="hidden lg:block">
               <div className="sticky top-28">
-                <FilterPanel activeCategory={activeCategory} setActiveCategory={setActiveCategory} styleFilter={styleFilter} setStyleFilter={setStyleFilter} wheelSize={wheelSize} setWheelSize={setWheelSize} topTubeFilter={topTubeFilter} setTopTubeFilter={setTopTubeFilter} frameMaterial={frameMaterial} setFrameMaterial={setFrameMaterial} skillLevel={skillLevel} setSkillLevel={setSkillLevel} brand={brand} setBrand={setBrand} priceMax={priceMax} setPriceMax={setPriceMax} onClear={clearFilters} />
+                <FilterPanel activeCategory={activeCategory} setActiveCategory={setActiveCategory} styleFilter={styleFilter} setStyleFilter={setStyleFilter} wheelSize={wheelSize} setWheelSize={setWheelSize} topTubeFilter={topTubeFilter} setTopTubeFilter={setTopTubeFilter} frameMaterial={frameMaterial} setFrameMaterial={setFrameMaterial} skillLevel={skillLevel} setSkillLevel={setSkillLevel} brand={brand} setBrand={setBrand} priceMax={priceMax} setPriceMax={setPriceMax} categoryOptions={categoryOptions} onClear={clearFilters} />
               </div>
             </aside>
             <div>
@@ -919,7 +1027,7 @@ export default function Storefront() {
           <button type="button" className="absolute inset-0 bg-[#151515]/55" onClick={() => setFilterOpen(false)} aria-label="Close filters" />
           <aside className="absolute right-0 top-0 flex h-full w-[min(92vw,390px)] flex-col bg-[#fffdf8] shadow-2xl">
             <div className="flex items-center justify-between border-b border-[#dedad2] px-5 py-4"><div><p className="eyebrow text-[#8d887f]">Refine the range</p><h2 className="mt-1 text-lg font-bold">Filters {activeFilterCount ? `(${activeFilterCount})` : ""}</h2></div><button type="button" onClick={() => setFilterOpen(false)} className="flex h-9 w-9 items-center justify-center border border-[#dedad2]" aria-label="Close filters"><X className="h-4 w-4" /></button></div>
-            <div className="no-scrollbar flex-1 overflow-y-auto px-5 py-6"><FilterPanel activeCategory={activeCategory} setActiveCategory={setActiveCategory} styleFilter={styleFilter} setStyleFilter={setStyleFilter} wheelSize={wheelSize} setWheelSize={setWheelSize} topTubeFilter={topTubeFilter} setTopTubeFilter={setTopTubeFilter} frameMaterial={frameMaterial} setFrameMaterial={setFrameMaterial} skillLevel={skillLevel} setSkillLevel={setSkillLevel} brand={brand} setBrand={setBrand} priceMax={priceMax} setPriceMax={setPriceMax} onClear={clearFilters} /></div>
+            <div className="no-scrollbar flex-1 overflow-y-auto px-5 py-6"><FilterPanel activeCategory={activeCategory} setActiveCategory={setActiveCategory} styleFilter={styleFilter} setStyleFilter={setStyleFilter} wheelSize={wheelSize} setWheelSize={setWheelSize} topTubeFilter={topTubeFilter} setTopTubeFilter={setTopTubeFilter} frameMaterial={frameMaterial} setFrameMaterial={setFrameMaterial} skillLevel={skillLevel} setSkillLevel={setSkillLevel} brand={brand} setBrand={setBrand} priceMax={priceMax} setPriceMax={setPriceMax} categoryOptions={categoryOptions} onClear={clearFilters} /></div>
             <div className="safe-bottom border-t border-[#dedad2] p-5"><button type="button" onClick={() => setFilterOpen(false)} className="flex h-12 w-full items-center justify-center gap-2 bg-[var(--orange)] text-xs font-extrabold uppercase tracking-[0.12em] text-white">Show {filteredProducts.length} bikes <ArrowRight className="h-4 w-4" /></button></div>
           </aside>
         </div>
@@ -951,6 +1059,9 @@ export default function Storefront() {
               </div>
             </div>
             <div className="border-t border-[#dedad2] px-5 py-6 sm:px-8 lg:px-10"><div className="flex items-center justify-between gap-4"><div><p className="eyebrow text-[var(--orange)]">The details</p><h3 className="mt-1 text-xl font-bold">Full specification</h3></div><span className="hidden text-xs font-semibold text-[#858078] sm:block">Built for {selectedProduct.ridingStyle.join(" + ").toLowerCase()}</span></div><div className="mt-5 grid gap-x-8 gap-y-0 border-t border-[#dedad2] sm:grid-cols-2">{Object.entries(selectedProduct.specs).map(([label, value]) => <div key={label} className="flex items-center justify-between gap-4 border-b border-[#dedad2] py-3 text-sm"><span className="text-[#858078]">{label}</span><span className="text-right font-bold text-[#3c3935]">{value}</span></div>)}</div></div>
+            <div className="border-t border-[#dedad2] px-5 py-6 sm:px-8 lg:px-10">
+              <ProductReviewSection slug={selectedProduct.id} productName={selectedProduct.name} compact />
+            </div>
           </div>
         </div>
       ) : null}

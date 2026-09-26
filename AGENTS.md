@@ -38,6 +38,18 @@ Use `npm.cmd`, not `npm`; PowerShell blocks the bare shim.
 - Set `CLOUDINARY_CLOUD_NAME` and `CLOUDINARY_UPLOAD_PRESET` to make uploads permanent. `res.cloudinary.com` is already allowed in `next.config.ts`; add any other image host there too.
 - `GET /api/admin/upload` reports the active driver so the dashboard can warn about non-persistent storage.
 
+## Products and categories
+- Products live in `bmx_products`; `data/bmx_bikes.json` is only the first-run seed plus the storefront's offline fallback. The seed only runs when the table is completely empty, so a product deleted on purpose stays deleted.
+- Categories are admin-managed in `bmx_categories`. Product writes validate `category` against those names, so a new department works everywhere (storefront filter, /shop) as soon as the category row exists.
+- `GET /api/categories` is public and returns `product_count`. The storefront builds its filter from it, so the nav never lists a department that does not exist.
+- Order items store `product_slug` as plain TEXT, not a foreign key, so deleting a product never damages order history.
+
+## Reviews
+- `bmx_reviews` holds customer reviews with a `pending -> approved | rejected` moderation flow. Submissions are never public until approved.
+- Submissions are rate limited to 4 per product per author per hour and a `website` honeypot field must stay empty.
+- `verified` is set automatically when the author's name matches a customer with a delivered order for that product.
+- `GET /api/products` replaces the seeded `rating`/`review_count` with the real approved-review average whenever a product has approved reviews, and falls back to the seeded numbers otherwise.
+
 ## Deploy prerequisites
 - Host env vars: `DATABASE_URL`, and `ADMIN_INITIAL_PASSWORD` only for a brand new database.
 - First request after a cold start is slow while the pool connects and the schema is created.

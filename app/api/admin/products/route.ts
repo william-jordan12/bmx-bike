@@ -50,7 +50,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const parsed = validateProductInput(body);
+  try {
+    await initDb();
+  } catch {
+    return NextResponse.json({ ok: false, error: "Failed to load categories." }, { status: 500 });
+  }
+
+  const parsed = validateProductInput(body, { validCategories: await categoryNames() });
   if (!parsed.ok) {
     return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
   }
@@ -125,4 +131,9 @@ export async function POST(req: Request) {
 
 function isUniqueViolation(err: unknown): boolean {
   return typeof err === "object" && err !== null && (err as { code?: string }).code === "23505";
+}
+
+async function categoryNames(): Promise<string[]> {
+  const { rows } = await getPool().query(`SELECT name FROM bmx_categories ORDER BY name ASC`);
+  return rows.map((row) => String(row.name));
 }

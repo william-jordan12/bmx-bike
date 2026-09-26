@@ -28,6 +28,11 @@ function notFound() {
 
 type Params = { params: Promise<{ id: string }> };
 
+async function categoryNames(): Promise<string[]> {
+  const { rows } = await getPool().query(`SELECT name FROM bmx_categories ORDER BY name ASC`);
+  return rows.map((row) => String(row.name));
+}
+
 export async function GET(_req: Request, { params }: Params) {
   const { id } = await params;
   const blocked = guard(id);
@@ -62,7 +67,7 @@ export async function PATCH(req: Request, { params }: Params) {
     return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const parsed = validateProductInput(body, { partial: true });
+  const parsed = validateProductInput(body, { partial: true, validCategories: await categoryNames() });
   if (!parsed.ok) {
     return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
   }
