@@ -4,7 +4,7 @@ import ReviewsPage from "@/components/reviews-page";
 export const metadata: Metadata = {
   title: "Customer Reviews",
   description:
-    "Read customer reviews for RIDE//BMX complete BMX bikes: star ratings for the whole catalog plus written rider reviews from freestyle, race, cruiser, and kids bikes."
+    "Read written rider reviews for RIDE//BMX complete BMX bikes: every star rating on this page comes from a review a customer actually wrote about freestyle, race, cruiser, and kids bikes."
 };
 
 export default function CustomerReviewsPage() {

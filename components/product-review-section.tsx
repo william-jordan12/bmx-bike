@@ -195,11 +195,10 @@ export default function ProductReviewSection({
   const endpoint = `/api/products/${encodeURIComponent(slug)}/reviews`;
 
   useEffect(() => {
+    let active = true;
     void (async () => {
-      let active = true;
       setLoading(true);
       setLoadError("");
-
       try {
         const response = await fetch(endpoint, { cache: "no-store" });
         const payload = (await response.json().catch(() => null)) as ReviewsResponse | null;
@@ -230,13 +229,12 @@ export default function ProductReviewSection({
         setReviews([]);
         setLoadError("Network error. Check your connection and retry.");
       }
-
-      return () => {
-        active = false;
-      };
     })();
-  }, [endpoint, attempt]);
 
+    return () => {
+      active = false;
+    };
+  }, [endpoint, attempt]);
   useEffect(() => {
     void (async () => {
       setFormOpen(false);

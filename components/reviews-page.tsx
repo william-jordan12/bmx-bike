@@ -16,36 +16,106 @@ import {
   Star,
   Truck
 } from "lucide-react";
-import bmxBikes from "@/data/bmx_bikes.json";
 import { DEFAULT_SITE_SETTINGS, isSocialLink, type SiteSettings } from "@/lib/site-settings";
-import type { BmxBike } from "@/lib/types";
 
-const fallbackProducts = bmxBikes as BmxBike[];
-
-const createPriceFormatter = (currency: string) =>
-  new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: currency || "USD"
-  });
+const REVIEWS_ENDPOINT = "/api/reviews";
+const CATALOG_HREF = "/#catalog";
 
 type RatingKey = "1" | "2" | "3" | "4" | "5";
 
-type CatalogProduct = BmxBike & { slug?: string };
+type ListedReview = {
+  id: string;
+  productSlug: string;
+  productName: string;
+  author: string;
+  rating: number;
+  title: string;
+  body: string;
+  verified: boolean;
+  helpful: number;
+  createdAt: string;
+};
 
-type ProductsResponse = {
-  ok?: boolean;
-  products?: CatalogProduct[] | null;
+type SummaryPayload = {
+  average?: number;
+  count?: number;
+  distribution?: Partial<Record<RatingKey, number>>;
+};
+
+type ReviewsResponse = {
+  summary?: SummaryPayload | null;
+  reviews?: unknown;
   error?: unknown;
 };
 
 const RATING_KEYS: RatingKey[] = ["5", "4", "3", "2", "1"];
 const RATING_VALUES = [1, 2, 3, 4, 5];
-const BAND_BY_STAR: Record<number, RatingKey> = { 1: "1", 2: "2", 3: "3", 4: "4", 5: "5" };
+
+const emptyDistribution = (): Record<RatingKey, number> => ({ "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 });
+
+const toText = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  return String(value);
+};
 
 const clampRating = (value: unknown): number => {
   const parsed = Math.round(Number(value));
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.min(5, parsed));
+};
+
+const normalizeDistribution = (
+  value: Partial<Record<RatingKey, number>> | null | undefined
+): Record<RatingKey, number> => {
+  const base = emptyDistribution();
+  if (!value || typeof value !== "object") return base;
+  for (const key of RATING_KEYS) {
+    const parsed = Math.round(Number(value[key]));
+    if (Number.isFinite(parsed) && parsed > 0) base[key] = parsed;
+  }
+  return base;
+};
+
+const toListedReview = (value: unknown): ListedReview | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const id = toText(raw.id);
+  const title = toText(raw.title);
+  const body = toText(raw.body);
+  if (!id || !title || !body) return null;
+  const created = toText(raw.createdAt);
+  const parsedDate = created ? new Date(created) : null;
+  const createdAt = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : new Date(0).toISOString();
+  return {
+    id,
+    productSlug: toText(raw.productSlug),
+    productName: toText(raw.productName) || "Retired bike",
+    author: toText(raw.author) || "Rider",
+    rating: clampRating(raw.rating) || 5,
+    title,
+    body,
+    verified: raw.verified === true,
+    helpful: Math.max(0, Math.trunc(Number(raw.helpful)) || 0),
+    createdAt
+  };
+};
+
+const timeAgo = (iso: string): string => {
+  const stamp = new Date(iso).getTime();
+  if (!Number.isFinite(stamp)) return "";
+  const seconds = Math.max(0, Math.round((Date.now() - stamp) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  if (days < 31) return `${days} day${days === 1 ? "" : "s"} ago`;
+  const months = Math.round(days / 30);
+  if (months < 12) return `${months} month${months === 1 ? "" : "s"} ago`;
+  const years = Math.max(1, Math.round(months / 12));
+  return `${years} year${years === 1 ? "" : "s"} ago`;
 };
 
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -90,11 +160,12 @@ function DistributionList({ distribution, total }: { distribution: Record<Rating
 }
 
 export default function ReviewsPage() {
-  const [products, setProducts] = useState<CatalogProduct[]>(fallbackProducts);
-  const [siteSettings, setSiteSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
+  const [summary, setSummary] = useState<{ average: number; count: number; distribution: Record<RatingKey, number> } | null>(null);
+  const [reviews, setReviews] = useState<ListedReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const [siteSettings, setSiteSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
 
   useEffect(() => {
     let active = true;
@@ -110,35 +181,46 @@ export default function ReviewsPage() {
   }, []);
 
   useEffect(() => {
+    let active = true;
     void (async () => {
-      let active = true;
       setLoading(true);
       setLoadError("");
-
       try {
-        const response = await fetch("/api/products", { cache: "no-store" });
-        const payload = (await response.json().catch(() => null)) as ProductsResponse | null;
+        const response = await fetch(REVIEWS_ENDPOINT, { cache: "no-store" });
+        const payload = (await response.json().catch(() => null)) as ReviewsResponse | null;
         if (!active) return;
-        if (!response.ok || !payload || payload.ok !== true) {
-          setLoadError("Live catalog unavailable, so these are our seeded catalog ratings.");
+        if (!response.ok || !payload) {
+          setSummary(null);
+          setReviews([]);
+          setLoadError(
+            typeof payload?.error === "string" && payload.error
+              ? payload.error
+              : "We could not load reviews right now."
+          );
           return;
         }
-        if (Array.isArray(payload.products) && payload.products.length > 0) setProducts(payload.products);
+        const list = Array.isArray(payload.reviews)
+          ? payload.reviews.map(toListedReview).filter((review): review is ListedReview => review !== null)
+          : [];
+        const count = Number(payload.summary?.count);
+        setSummary({
+          average: Number.isFinite(Number(payload.summary?.average)) ? Number(payload.summary?.average) : 0,
+          count: Number.isFinite(count) && count > 0 ? Math.round(count) : list.length,
+          distribution: normalizeDistribution(payload.summary?.distribution)
+        });
+        setReviews(list);
       } catch {
         if (!active) return;
-        setLoadError("Network error, so these are our seeded catalog ratings.");
+        setSummary(null);
+        setReviews([]);
+        setLoadError("Network error. Check your connection and retry.");
       }
-
-      return () => {
-        active = false;
-      };
     })();
-  }, [attempt]);
 
-  const formatPrice = useMemo(() => {
-    const formatter = createPriceFormatter(siteSettings.currency);
-    return (price: number) => formatter.format(price);
-  }, [siteSettings.currency]);
+    return () => {
+      active = false;
+    };
+  }, [attempt]);
 
   const socialLinks = useMemo(
     () =>
@@ -153,35 +235,17 @@ export default function ReviewsPage() {
     [siteSettings]
   );
 
-  const totals = useMemo(() => {
-    const distribution: Record<RatingKey, number> = { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 };
-    let ratingTotal = 0;
-    let weighted = 0;
-    for (const product of products) {
-      const count = Math.max(0, Math.trunc(product.reviewCount));
-      const rating = clampRating(product.rating);
-      ratingTotal += count;
-      weighted += rating * count;
-      if (count === 0) continue;
-      distribution[BAND_BY_STAR[rating === 0 ? 1 : rating]] += count;
+  const bikesReviewed = useMemo(() => {
+    const slugs = new Set<string>();
+    for (const review of reviews) {
+      if (review.productSlug) slugs.add(review.productSlug);
     }
-    return { ratingTotal, average: ratingTotal > 0 ? weighted / ratingTotal : 0, distribution };
-  }, [products]);
+    return slugs.size;
+  }, [reviews]);
 
-  const withReviews = useMemo(
-    () =>
-      products
-        .filter((product) => product.reviewCount > 0)
-        .sort((a, b) => b.reviewCount - a.reviewCount || b.rating - a.rating || a.name.localeCompare(b.name)),
-    [products]
-  );
-
-  const rankedProducts = useMemo(
-    () => [...products].sort((a, b) => b.rating - a.rating || b.reviewCount - a.reviewCount || a.name.localeCompare(b.name)),
-    [products]
-  );
-
-  const hasRatings = totals.ratingTotal > 0;
+  const total = summary ? summary.count : reviews.length;
+  const average = summary ? summary.average : 0;
+  const hasRatings = total > 0;
 
   return (
     <>
@@ -207,7 +271,7 @@ export default function ReviewsPage() {
             RIDE<span className="text-[var(--orange)]">{"//"}</span>BMX
           </Link>
           <nav className="ml-auto hidden items-center gap-7 lg:flex">
-            <Link href="/#catalog" className="flex h-11 items-center text-xs font-extrabold uppercase tracking-[0.1em] text-[#282725] transition hover:text-[var(--orange)]">
+            <Link href={CATALOG_HREF} className="flex h-11 items-center text-xs font-extrabold uppercase tracking-[0.1em] text-[#282725] transition hover:text-[var(--orange)]">
               Complete BMX Bikes
             </Link>
             <Link href="/reviews" aria-current="page" className="flex h-11 items-center text-xs font-extrabold uppercase tracking-[0.1em] text-[var(--orange)]">
@@ -217,7 +281,7 @@ export default function ReviewsPage() {
             <span className="text-[10px] font-semibold text-[#96918a]">Rider feedback</span>
           </nav>
           <Link
-            href="/#catalog"
+            href={CATALOG_HREF}
             className="ml-auto inline-flex items-center gap-2 bg-[var(--orange)] px-4 py-2.5 text-[11px] font-extrabold uppercase tracking-[0.12em] text-white transition hover:bg-[#151515] lg:ml-0"
           >
             Shop bikes <ArrowRight className="h-3.5 w-3.5" />
@@ -239,27 +303,28 @@ export default function ReviewsPage() {
                 Customer reviews<span className="text-[var(--orange)]">.</span>
               </h1>
               <p className="mt-6 max-w-lg text-base leading-7 text-[#c4c0b9]">
-                Star ratings straight from our catalog, plus written reviews from riders once our crew approves them. No paid
-                placements, no invented quotes.
+                Every number on this page belongs to a review a customer actually wrote about a bike they ride. No catalog
+                averages, no invented quotes, nothing edited to flatter a bike.
               </p>
               <div className="mt-10 flex flex-wrap items-end gap-8 border-t border-[#3d3a36] pt-6">
                 <div>
-                  <p className="font-display text-5xl leading-none text-white">{hasRatings ? totals.average.toFixed(1) : "—"}</p>
-                  <div className="mt-2">{hasRatings ? <StarRow rating={totals.average} size="md" /> : null}</div>
-                  <p className="eyebrow mt-2 text-[#8d8981]">Overall rider rating</p>
+                  <p className="font-display text-5xl leading-none text-white">{hasRatings ? average.toFixed(1) : "—"}</p>
+                  <div className="mt-2">{hasRatings ? <StarRow rating={average} size="md" /> : null}</div>
+                  <p className="eyebrow mt-2 text-[#8d8981]">Average rider rating</p>
                 </div>
                 <div>
-                  <p className="font-display text-5xl leading-none text-white">{totals.ratingTotal}</p>
-                  <p className="eyebrow mt-2 text-[#8d8981]">Catalog star ratings</p>
+                  <p className="font-display text-5xl leading-none text-white">{total}</p>
+                  <p className="eyebrow mt-2 text-[#8d8981]">{total === 1 ? "Written review" : "Written reviews"}</p>
                 </div>
                 <div>
-                  <p className="font-display text-5xl leading-none text-white">{products.length}</p>
-                  <p className="eyebrow mt-2 text-[#8d8981]">Bikes rated</p>
+                  <p className="font-display text-5xl leading-none text-white">{bikesReviewed}</p>
+                  <p className="eyebrow mt-2 text-[#8d8981]">{bikesReviewed === 1 ? "Bike reviewed" : "Bikes reviewed"}</p>
                 </div>
               </div>
               <p className="mt-6 max-w-lg text-[11px] leading-5 text-[#77736c]">
-                Weighted across every catalog star rating on {plural(products.length, "bike")}. Written customer reviews are
-                listed further down this page.
+                {hasRatings
+                  ? `Averaged across ${plural(total, "approved review")} covering ${plural(bikesReviewed, "bike")}, newest first.`
+                  : "No approved written reviews yet. The first one lands here the moment our crew approves it."}
               </p>
             </div>
           </div>
@@ -273,15 +338,15 @@ export default function ReviewsPage() {
                 STAR BANDS<span className="text-[var(--orange)]">.</span>
               </h2>
               <p className="mt-4 max-w-xs text-sm leading-6 text-[#77726b]">
-                How the {totals.ratingTotal} catalog star ratings land across the five bands, grouped by each bike&apos;s
-                average.
+                How the most recent written reviews land across the five bands, counted one review at a time.
               </p>
             </div>
             <div>
-              <DistributionList distribution={totals.distribution} total={totals.ratingTotal} />
+              <DistributionList distribution={summary ? summary.distribution : emptyDistribution()} total={total} />
               <p className="mt-4 text-[11px] leading-5 text-[#96918a]">
-                Bands come from catalog averages, not from individual written reviews. Per-bike distributions appear in quick
-                view.
+                {hasRatings
+                  ? `Every bar is one written review, so the bands add up to ${plural(total, "review")}.`
+                  : "The bands stay empty until customers write their first review."}
               </p>
             </div>
             <div className="flex flex-col justify-center border border-[#e0dcd4] bg-[#f7f5f0] p-5 sm:p-6">
@@ -292,7 +357,7 @@ export default function ReviewsPage() {
                 nothing gets edited to flatter a bike.
               </p>
               <Link
-                href="/#catalog"
+                href={CATALOG_HREF}
                 className="mt-5 inline-flex items-center gap-2 text-[11px] font-extrabold uppercase tracking-[0.12em] text-[#494641] transition hover:text-[var(--orange)]"
               >
                 Open a bike to review it <ArrowUpRight className="h-3.5 w-3.5" />
@@ -310,63 +375,36 @@ export default function ReviewsPage() {
               </h2>
             </div>
             <p className="max-w-sm text-sm leading-6 text-[#77726b]">
-              {withReviews.length
-                ? `${plural(withReviews.length, "bike")} carry written rider reviews. Open one to read the full text.`
-                : "Written reviews land here as soon as customers submit them."}
+              {hasRatings
+                ? `${plural(total, "written review")}, newest first. Each one links back to the bike it was written about.`
+                : "Written reviews land here as soon as customers submit them and the crew approves them."}
             </p>
           </div>
 
-          <div className="flex items-start gap-3 border border-[#e0dcd4] bg-[#f7f5f0] p-4 sm:p-5">
-            <Star className="mt-0.5 h-5 w-5 shrink-0 text-[var(--orange)]" strokeWidth={1.8} />
-            <div>
-              <p className="text-sm font-bold text-[#494641]">
-                Written reviews appear here once customers submit them and they are approved. Star ratings below are from our
-                catalog.
-              </p>
-              {withReviews.length === 0 ? (
-                <p className="mt-2 text-xs leading-5 text-[#77726b]">
-                  No bike has an approved written review yet, so this page is showing catalog star ratings only. Be the first
-                  rider to write one from a bike&apos;s quick view.
-                </p>
-              ) : null}
-            </div>
-          </div>
-
-          {withReviews.length ? (
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {withReviews.map((product) => (
-                <article key={product.slug || product.id} className="product-card flex flex-col justify-between border border-[#dedad2] bg-white p-5">
-                  <div>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="eyebrow text-[#8d887f]">{product.brand}</p>
-                        <h3 className="mt-1.5 text-[15px] font-bold leading-snug text-[#1d1c1a]">{product.name}</h3>
-                      </div>
-                      <span className="shrink-0 text-lg font-extrabold tracking-tight text-[#1d1c1a]">
-                        {product.rating.toFixed(1)}
-                      </span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <StarRow rating={product.rating} size="md" />
-                      <span className="text-[11px] font-semibold text-[#96918a]">{plural(product.reviewCount, "rating")}</span>
+          {loading ? (
+            <div className="mt-6 space-y-4" aria-busy="true" role="status">
+              <span className="sr-only">Loading written reviews...</span>
+              {[0, 1, 2].map((slot) => (
+                <div key={slot} className="border border-[#dedad2] bg-white p-5">
+                  <div className="flex items-center gap-3">
+                    <span className="block h-11 w-11 shrink-0 animate-pulse bg-[#e5e0d8]" />
+                    <div className="flex-1 space-y-2">
+                      <span className="block h-3 w-40 animate-pulse bg-[#ece8e1]" />
+                      <span className="block h-2.5 w-24 animate-pulse bg-[#ece8e1]" />
                     </div>
                   </div>
-                  <div className="mt-5 flex items-end justify-between gap-3 border-t border-[#e4e0d8] pt-4">
-                    <span className="text-base font-extrabold tracking-tight text-[#1d1c1a]">{formatPrice(product.price)}</span>
-                    <Link
-                      href="/#catalog"
-                      aria-label={`Read reviews for ${product.name}`}
-                      className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-[0.1em] text-[#494641] transition hover:text-[var(--orange)]"
-                    >
-                      Read reviews <ArrowUpRight className="h-3.5 w-3.5" />
-                    </Link>
+                  <div className="mt-4 space-y-2">
+                    <span className="block h-2.5 w-full animate-pulse bg-[#f0ece5]" />
+                    <span className="block h-2.5 w-11/12 animate-pulse bg-[#f0ece5]" />
+                    <span className="block h-2.5 w-8/12 animate-pulse bg-[#f0ece5]" />
                   </div>
-                </article>
+                </div>
               ))}
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#96918a]" aria-hidden="true">
+                Loading written reviews...
+              </p>
             </div>
-          ) : null}
-
-          {loadError ? (
+          ) : loadError ? (
             <div
               role="alert"
               className="mt-6 flex flex-col gap-3 border border-[#e0dcd4] bg-[#f7f5f0] p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5"
@@ -381,59 +419,72 @@ export default function ReviewsPage() {
                 Retry
               </button>
             </div>
-          ) : null}
-        </section>
-
-        <section className="border-y border-[#dedad2] bg-white">
-          <div className="mx-auto max-w-[1440px] px-5 py-12 sm:py-16 lg:px-8">
-            <div className="mb-8 flex flex-col gap-4 border-b border-[#dedad2] pb-7 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="eyebrow text-[var(--orange)]">Every bike, rated</p>
-                <h2 className="font-display mt-2 text-4xl leading-[0.9] text-[#1d1c1a] sm:text-5xl">
-                  THE FULL RANGE<span className="text-[var(--orange)]">.</span>
-                </h2>
-              </div>
-              <div className="flex items-center gap-2 text-xs font-semibold text-[#77726b]">
-                <span className="flex h-2 w-2 rounded-full bg-[var(--orange)]" />
-                {loading ? "Refreshing ratings from the catalog…" : `Catalog star ratings for ${plural(products.length, "bike")}`}
-              </div>
-            </div>
-
-            {rankedProducts.length ? (
-              <ul className="divide-y divide-[#e4e0d8] border-y border-[#e4e0d8]">
-                {rankedProducts.map((product, index) => (
-                  <li key={product.slug || product.id} className="flex flex-wrap items-center gap-x-5 gap-y-2 py-4">
-                    <span className="eyebrow w-7 shrink-0 text-[#b2ada4]">{String(index + 1).padStart(2, "0")}</span>
-                    <div className="min-w-[180px] flex-1">
-                      <p className="eyebrow text-[#8d887f]">{product.brand}</p>
-                      <p className="mt-1 text-sm font-bold leading-snug text-[#1d1c1a]">{product.name}</p>
-                    </div>
-                    <StarRow rating={product.rating} />
-                    <span className="w-10 text-sm font-extrabold text-[#1d1c1a]">{product.rating.toFixed(1)}</span>
-                    <span className="w-24 text-[11px] font-semibold text-[#96918a]">
-                      {product.reviewCount > 0 ? plural(product.reviewCount, "rating") : "No ratings yet"}
-                    </span>
-                    <span className="w-24 text-right text-sm font-bold text-[#3c3935]">{formatPrice(product.price)}</span>
-                    <Link
-                      href="/#catalog"
-                      aria-label={`View ${product.name} in the catalog`}
-                      className="inline-flex w-24 items-center justify-end gap-1.5 text-[11px] font-extrabold uppercase tracking-[0.1em] text-[#69645d] transition hover:text-[var(--orange)]"
+          ) : reviews.length ? (
+            <ul className="mt-6 divide-y divide-[#e4e0d8] border-y border-[#e4e0d8]">
+              {reviews.map((review) => (
+                <li key={review.id} className="bg-white py-6">
+                  <article className="flex items-start gap-4">
+                    <span
+                      className="flex h-11 w-11 shrink-0 items-center justify-center bg-[var(--ink)] text-sm font-extrabold uppercase text-white"
+                      aria-hidden="true"
                     >
-                      Shop <ArrowRight className="h-3.5 w-3.5" />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="flex min-h-[280px] flex-col items-center justify-center border border-dashed border-[#cfc9bf] bg-[#fffdf8] px-6 text-center">
-                <Star className="h-8 w-8 text-[var(--orange)]" strokeWidth={1.6} />
-                <h3 className="mt-4 text-lg font-bold text-[#1d1c1a]">The catalog is empty right now.</h3>
-                <p className="mt-2 max-w-sm text-sm text-[#77726b]">
-                  No bikes have loaded, so there is nothing to rate yet. Check back in a minute or head to the shop.
-                </p>
-              </div>
-            )}
-          </div>
+                      {(review.author.trim().charAt(0) || "?").toUpperCase()}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                        <span className="text-sm font-bold text-[#1d1c1a]">{review.author}</span>
+                        {review.verified ? (
+                          <span className="flex items-center gap-1 border border-[#d8d3ca] px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-[0.12em] text-[#4e8a57]">
+                            <ShieldCheck className="h-3 w-3" strokeWidth={2} />
+                            Verified rider
+                          </span>
+                        ) : null}
+                        <time dateTime={review.createdAt} className="ml-auto text-[11px] font-semibold text-[#96918a]">
+                          {timeAgo(review.createdAt)}
+                        </time>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <StarRow rating={review.rating} size="md" />
+                        <span className="text-[11px] font-semibold text-[#96918a]">{review.rating} out of 5</span>
+                      </div>
+                      <h3 className="mt-3 text-[15px] font-bold leading-snug text-[#1d1c1a]">{review.title}</h3>
+                      <p className="mt-1.5 whitespace-pre-line text-sm leading-7 text-[#5d5952]">{review.body}</p>
+                      <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-[#ece8e1] pt-3">
+                        <Link
+                          href={CATALOG_HREF}
+                          aria-label={`View ${review.productName} in the catalog`}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-[0.12em] text-[#494641] transition hover:text-[var(--orange)]"
+                        >
+                          {review.productName}
+                          <ArrowUpRight className="h-3.5 w-3.5" />
+                        </Link>
+                        {review.helpful > 0 ? (
+                          <span className="text-[11px] font-semibold text-[#96918a]">
+                            {plural(review.helpful, "rider")} found this helpful
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </article>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="mt-6 flex flex-col items-center justify-center border border-dashed border-[#cfc9bf] bg-white px-6 py-14 text-center">
+              <Star className="h-8 w-8 text-[var(--orange)]" strokeWidth={1.6} />
+              <h3 className="mt-4 text-lg font-bold text-[#1d1c1a]">No written reviews yet.</h3>
+              <p className="mt-2 max-w-md text-sm leading-6 text-[#77726b]">
+                Reviews appear here once customers write them and our crew approves them, so this page starts empty on purpose
+                rather than filling up with numbers nobody wrote. Be the first rider to say something honest about your bike.
+              </p>
+              <Link
+                href={CATALOG_HREF}
+                className="mt-6 inline-flex items-center gap-2 bg-[var(--orange)] px-5 py-3.5 text-[11px] font-extrabold uppercase tracking-[0.12em] text-white transition hover:bg-[#151515]"
+              >
+                Pick a bike <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          )}
         </section>
 
         <section className="bg-[#e9e5dc]">
@@ -446,7 +497,7 @@ export default function ReviewsPage() {
               </p>
             </div>
             <Link
-              href="/#catalog"
+              href={CATALOG_HREF}
               className="inline-flex shrink-0 items-center gap-2 bg-[var(--orange)] px-5 py-3.5 text-[11px] font-extrabold uppercase tracking-[0.12em] text-white transition hover:bg-[#151515]"
             >
               Pick a bike <ArrowRight className="h-4 w-4" />
@@ -510,19 +561,19 @@ export default function ReviewsPage() {
             <div>
               <p className="eyebrow mb-4 text-[#ff7950]">Shop</p>
               <div className="space-y-3 text-sm text-[#aaa59d]">
-                <Link href="/#catalog" className="block transition hover:text-white">Complete BMX bikes</Link>
-                <Link href="/#catalog" className="block transition hover:text-white">BMX parts</Link>
-                <Link href="/#catalog" className="block transition hover:text-white">Clothing & softgoods</Link>
-                <Link href="/#catalog" className="block transition hover:text-white">Brands we stock</Link>
+                <Link href={CATALOG_HREF} className="block transition hover:text-white">Complete BMX bikes</Link>
+                <Link href={CATALOG_HREF} className="block transition hover:text-white">BMX parts</Link>
+                <Link href={CATALOG_HREF} className="block transition hover:text-white">Clothing & softgoods</Link>
+                <Link href={CATALOG_HREF} className="block transition hover:text-white">Brands we stock</Link>
               </div>
             </div>
             <div>
               <p className="eyebrow mb-4 text-[#ff7950]">Help</p>
               <div className="space-y-3 text-sm text-[#aaa59d]">
                 <a href={`mailto:${siteSettings.contactEmail}`} className="block transition hover:text-white">Contact the crew</a>
-                <Link href="/#catalog" className="block transition hover:text-white">Delivery information</Link>
-                <Link href="/#catalog" className="block transition hover:text-white">Returns</Link>
-                <Link href="/#catalog" className="block transition hover:text-white">Bike finder</Link>
+                <Link href={CATALOG_HREF} className="block transition hover:text-white">Delivery information</Link>
+                <Link href={CATALOG_HREF} className="block transition hover:text-white">Returns</Link>
+                <Link href={CATALOG_HREF} className="block transition hover:text-white">Bike finder</Link>
               </div>
             </div>
             <div>
