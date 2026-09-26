@@ -106,3 +106,28 @@ export function buildWhatsappUrl(phone: string, message: string): string {
 export function buildEmailUrl(email: string, subject: string, body: string): string {
   return `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
+
+export interface PaymentDestinationInput {
+  requested: ContactChannel;
+  whatsappNumber: string;
+  contactEmail: string;
+  orderReference: string;
+  message: string;
+}
+
+export interface PaymentDestination {
+  channel: ContactChannel;
+  url: string;
+  subject: string;
+}
+
+export function paymentDestination(input: PaymentDestinationInput): PaymentDestination {
+  const whatsapp = whatsappNumberDigits(input.whatsappNumber);
+  const channel: ContactChannel = input.requested === "whatsapp" && !whatsapp ? "email" : input.requested;
+  const subject = `Payment for order ${input.orderReference}`;
+
+  if (channel === "whatsapp") {
+    return { channel, url: buildWhatsappUrl(whatsapp, input.message), subject };
+  }
+  return { channel, url: buildEmailUrl(input.contactEmail, subject, input.message), subject };
+}

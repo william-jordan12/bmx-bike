@@ -40,6 +40,7 @@ import {
   buildWhatsappUrl,
   DEFAULT_PAYMENT_METHOD,
   PAYMENT_METHODS,
+  paymentDestination,
   type ContactChannel
 } from "@/lib/payments";
 import { DEFAULT_SITE_SETTINGS, isSocialLink, type SiteSettings } from "@/lib/site-settings";
@@ -417,7 +418,7 @@ export default function Storefront() {
   });
   const [paymentMethod, setPaymentMethod] = useState<string>(DEFAULT_PAYMENT_METHOD);
   const [contactChannel, setContactChannel] = useState<ContactChannel>("whatsapp");
-  const [paymentRequest, setPaymentRequest] = useState<{ reference: string; message: string } | null>(null);
+  const [paymentRequest, setPaymentRequest] = useState<{ reference: string; message: string; channel: ContactChannel } | null>(null);
   const [copied, setCopied] = useState(false);
   const [products, setProducts] = useState<BmxBike[]>(fallbackProducts);
   const [categoryOptions, setCategoryOptions] = useState<ReadonlyArray<{ label: string; value: string }>>(
@@ -438,6 +439,10 @@ export default function Storefront() {
     const formatter = createPriceFormatter(siteSettings.currency);
     return (price: number) => formatter.format(price);
   }, [siteSettings.currency]);
+
+  const whatsappReady = Boolean(siteSettings.whatsapp);
+  const activeChannel: ContactChannel = contactChannel === "whatsapp" && !whatsappReady ? "email" : contactChannel;
+  const channelLabel = activeChannel === "whatsapp" ? "WhatsApp" : "email";
 
   const socialLinks = useMemo(
     () =>
@@ -718,11 +723,21 @@ export default function Storefront() {
           : customer.billingAddress
       });
 
-      setPaymentRequest({ reference: order.reference, message });
+      const destination = paymentDestination({
+        requested: activeChannel,
+        whatsappNumber: siteSettings.whatsapp,
+        contactEmail: siteSettings.contactEmail,
+        orderReference: order.reference,
+        message
+      });
+
+      setPaymentRequest({ reference: order.reference, message, channel: destination.channel });
       setCartItems([]);
       setCartOpen(false);
       setCopied(false);
       setNotice(`Order ${order.reference} reserved`);
+
+      window.location.href = destination.url;
     } catch {
       setCheckoutError("Network error. Please try again.");
     } finally {
@@ -1172,10 +1187,11 @@ export default function Storefront() {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="eyebrow text-[#8d887f]">Order {paymentRequest.reference}</p>
-                    <button type="button" onClick={closeCheckout} className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#77726b] hover:text-[var(--orange)]">Close</button>
-                  </div>
+                    <button type="button" onClick={closeCheckout} className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#77726b] hover:text-[var(--orange)]">Close</button>                  </div>
                   <p className="text-xs leading-5 text-[#77726b]">
-                    Your order is reserved. Send this to us and we will reply with the payment instructions for {PAYMENT_METHODS.find((method) => method.id === paymentMethod)?.label}.
+                    Order {paymentRequest.reference} is reserved and your{" "}
+                    {paymentRequest.channel === "whatsapp" ? "WhatsApp" : "email"} should have opened with the message ready to send. We reply with the instructions for{" "}
+                    {PAYMENT_METHODS.find((method) => method.id === paymentMethod)?.label}. If it did not open, use the buttons below.
                   </p>
                   <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap border border-[#d8d3ca] bg-[#f7f5f1] p-3 text-[11px] leading-5 text-[#3f3b35]">{paymentRequest.message}</pre>
                   {checkoutError ? <p className="border border-[#e8c3b8] bg-[#fdf1ec] px-3 py-2 text-xs font-semibold text-[#a5372a]" role="alert">{checkoutError}</p> : null}
@@ -1184,9 +1200,9 @@ export default function Storefront() {
                       href={buildWhatsappUrl(siteSettings.whatsapp, paymentRequest.message)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      aria-disabled={!siteSettings.whatsapp}
-                      onClick={(event) => { if (!siteSettings.whatsapp) event.preventDefault(); }}
-                      className={`flex h-12 items-center justify-center gap-2 text-xs font-extrabold uppercase tracking-[0.12em] text-white transition ${siteSettings.whatsapp ? "bg-[var(--orange)] hover:bg-[#151515]" : "cursor-not-allowed bg-[#cfcac1]"}`}
+                      aria-disabled={!whatsappReady}
+                      onClick={(event) => { if (!whatsappReady) event.preventDefault(); }}
+                      className={`flex h-12 items-center justify-center gap-2 text-xs font-extrabold uppercase tracking-[0.12em] text-white transition ${whatsappReady ? "bg-[var(--orange)] hover:bg-[#151515]" : "cursor-not-allowed bg-[#cfcac1]"}`}
                     >
                       <MessageCircle className="h-4 w-4" /> WhatsApp
                     </a>
@@ -1200,7 +1216,7 @@ export default function Storefront() {
                   <button type="button" onClick={copyPaymentRequest} className="flex h-11 w-full items-center justify-center gap-2 border border-[#d8d3ca] text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#77726b] transition hover:border-[var(--orange)] hover:text-[var(--orange)]">
                     <Copy className="h-3.5 w-3.5" /> {copied ? "Copied" : "Copy message"}
                   </button>
-                  {!siteSettings.whatsapp ? (
+                  {!whatsappReady ? (
                     <p className="text-[11px] leading-5 text-[#96918a]">
                       WhatsApp is not set up yet, so use email. The store owner can add a WhatsApp number in Settings to enable the WhatsApp button.
                     </p>
@@ -1263,8 +1279,8 @@ export default function Storefront() {
                     <legend className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#77726b]">Send my payment request via</legend>
                     <div className="grid grid-cols-2 gap-2">
                       {(["whatsapp", "email"] as const).map((channel) => {
-                        const active = contactChannel === channel;
-                        const unavailable = channel === "whatsapp" && !siteSettings.whatsapp;
+                        const active = activeChannel === channel;
+                        const unavailable = channel === "whatsapp" && !whatsappReady;
                         return (
                           <label
                             key={channel}
@@ -1288,8 +1304,15 @@ export default function Storefront() {
                   <textarea value={customer.notes} onChange={(event) => setCustomer({ ...customer, notes: event.target.value })} placeholder="Delivery notes (optional)" rows={2} className="w-full resize-none border border-[#d8d3ca] px-3 py-2 text-sm outline-none focus:border-[var(--orange)]" />
                   {checkoutError ? <p className="border border-[#e8c3b8] bg-[#fdf1ec] px-3 py-2 text-xs font-semibold text-[#a5372a]" role="alert">{checkoutError}</p> : null}
                   <div className="flex items-center justify-between border-t border-[#dedad2] pt-3"><span className="text-sm font-semibold text-[#77726b]">Total</span><span className="text-xl font-extrabold">{formatPrice(cartSubtotal)}</span></div>
-                  <button type="submit" disabled={checkoutPending} className="flex h-12 w-full items-center justify-center gap-2 bg-[var(--orange)] text-xs font-extrabold uppercase tracking-[0.12em] text-white transition hover:bg-[#151515] disabled:opacity-60">{checkoutPending ? "Reserving order…" : "Reserve order & get payment details"}<ArrowRight className="h-4 w-4" /></button>
-                  <p className="text-[11px] leading-5 text-[#96918a]">No card is charged here. We send payment instructions for the method you choose.</p>
+                  <button type="submit" disabled={checkoutPending} className="flex h-12 w-full items-center justify-center gap-2 bg-[var(--orange)] text-xs font-extrabold uppercase tracking-[0.12em] text-white transition hover:bg-[#151515] disabled:opacity-60">
+                    {checkoutPending
+                      ? "Reserving order…"
+                      : `Place order & open ${channelLabel}`}
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                  <p className="text-[11px] leading-5 text-[#96918a]">
+                    Your order is saved first, then {activeChannel === "whatsapp" ? "WhatsApp" : "your email app"} opens with the payment request. No card is charged here.
+                  </p>
                 </form>
               )}
                 </>

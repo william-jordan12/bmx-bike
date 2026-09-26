@@ -53,7 +53,8 @@ Use `npm.cmd`, not `npm`; PowerShell blocks the bare shim.
 
 ## Payment requests
 - The 11 payment methods live in `lib/payments.ts` (`PAYMENT_METHODS`). `isPaymentMethod` is the only gate: the API rejects anything not in that list.
-- Checkout reserves the order first, then builds the customer's message with `buildPaymentRequestMessage` and hands back WhatsApp (`wa.me`) and `mailto:` links. Nothing is charged in-browser.
+- Checkout reserves the order first, then `paymentDestination` builds the WhatsApp (`wa.me`) or `mailto:` URL and the component assigns it to `window.location.href`. The customer lands in WhatsApp or their mail app with the message ready to send. `paymentRequest` stays in state as the fallback panel in case the redirect is blocked.
+- `activeChannel` in the storefront is the single source of truth for which channel is actually used: while no WhatsApp number is saved it resolves to `email`, so the radio, the button label and the redirect can never disagree during the async settings load.
 - Orders record `payment_method`, `billing_address` and `contact_channel`. `delivery_method` is kept in sync with `contact_channel` for older rows.
 - `store_name` in `bmx_settings` is what fills `[Store Name]` in the message. The WhatsApp button stays disabled until a WhatsApp number is saved in Settings.
 - Orders are priced from `bmx_products`, so products added in the admin are orderable. The JSON catalog is only a fallback when `DATABASE_URL` is missing.
