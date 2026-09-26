@@ -318,12 +318,12 @@ function ProductCard({ bike, wishlisted, viewMode, formatPrice, onToggleWishlist
           src={bike.image}
           alt={`${bike.name} product image`}
           fill
-          sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 33vw"
+          sizes="(max-width: 640px) 50vw, (max-width: 1280px) 50vw, 33vw"
           className="product-image object-cover"
         />
-        <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
-          <span className="bg-[var(--orange)] px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.12em] text-white">{bike.badge}</span>
-          {bike.compareAtPrice ? <span className="bg-white px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#4c4944]">Sale</span> : null}
+        <div className="absolute left-3 right-12 top-3 flex flex-wrap gap-1.5">
+          <span className="min-w-0 truncate bg-[var(--orange)] px-2 py-1 text-[9px] font-extrabold uppercase tracking-[0.08em] text-white sm:px-2.5 sm:text-[10px] sm:tracking-[0.12em]">{bike.badge}</span>
+          {bike.compareAtPrice ? <span className="min-w-0 truncate bg-white px-2 py-1 text-[9px] font-extrabold uppercase tracking-[0.08em] text-[#4c4944] sm:px-2.5 sm:text-[10px] sm:tracking-[0.12em]">Sale</span> : null}
         </div>
         <button
           type="button"
@@ -338,28 +338,28 @@ function ProductCard({ bike, wishlisted, viewMode, formatPrice, onToggleWishlist
         <button
           type="button"
           onClick={() => onQuickView(bike)}
-          className="absolute bottom-3 left-3 right-3 flex items-center justify-center gap-2 bg-[#151515] px-3 py-2.5 text-[11px] font-extrabold uppercase tracking-[0.13em] text-white opacity-100 transition hover:bg-[var(--orange)] md:opacity-0 md:group-hover:opacity-100"
+          className="absolute bottom-3 left-3 right-3 flex items-center justify-center gap-1 bg-[#151515] px-1.5 py-2.5 text-[11px] font-extrabold uppercase tracking-[0.13em] text-white opacity-100 transition hover:bg-[var(--orange)] sm:gap-2 sm:px-3 md:opacity-0 md:group-hover:opacity-100"
         >
           Quick view <ArrowUpRight className="h-3.5 w-3.5" />
         </button>
       </div>
-      <div className="product-info p-4 sm:p-5">
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <span className="eyebrow text-[#8d887f]">{bike.brand}</span>
-          <span className="flex items-center gap-1 text-[11px] font-bold text-[#5c5852]">
+      <div className="product-info p-3 sm:p-5">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="eyebrow min-w-0 truncate text-[#8d887f]">{bike.brand}</span>
+          <span className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-[#5c5852]">
             <Star className="h-3 w-3 fill-[var(--orange)] text-[var(--orange)]" /> {bike.rating} <span className="font-normal text-[#9a958c]">({bike.reviewCount})</span>
           </span>
         </div>
-        <h3 className="min-h-[42px] text-[15px] font-bold leading-snug text-[#1d1c1a] sm:text-base">{bike.name}</h3>
+        <h3 className="min-h-[42px] text-sm font-bold leading-snug text-[#1d1c1a] sm:text-base">{bike.name}</h3>
         <div className="mt-3 flex flex-wrap gap-1.5">
           <span className="border border-[#dedad2] px-2 py-1 text-[10px] font-semibold text-[#6e6962]">{bike.wheelSize} wheels</span>
           <span className="border border-[#dedad2] px-2 py-1 text-[10px] font-semibold text-[#6e6962]">{bike.topTube} top tube</span>
           {bike.frameMaterial === "Full Chromoly" ? <span className="border border-[#dedad2] px-2 py-1 text-[10px] font-semibold text-[#6e6962]">Full chromoly</span> : null}
         </div>
-        <div className="mt-5 flex items-end justify-between gap-3">
+        <div className="mt-5 flex flex-col items-start gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-lg font-extrabold tracking-tight text-[#1d1c1a]">{formatPrice(bike.price)}</span>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="text-base font-extrabold tracking-tight text-[#1d1c1a] sm:text-lg">{formatPrice(bike.price)}</span>
               {bike.compareAtPrice ? <span className="text-xs text-[#9b968e] line-through">{formatPrice(bike.compareAtPrice)}</span> : null}
             </div>
             <span className="text-[10px] font-semibold text-[#8d887f]">or 4 interest-free payments</span>
@@ -367,10 +367,11 @@ function ProductCard({ bike, wishlisted, viewMode, formatPrice, onToggleWishlist
           <button
             type="button"
             onClick={() => onAdd(bike)}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--orange)] text-white transition hover:bg-[#1d1c1a]"
+            className="flex h-10 w-full shrink-0 items-center justify-center gap-2 rounded-full bg-[var(--orange)] text-white transition hover:bg-[#1d1c1a] sm:h-10 sm:w-10"
             aria-label={`Add ${bike.name} to cart`}
           >
             <ShoppingBag className="h-4 w-4" />
+            <span className="text-[11px] font-extrabold uppercase tracking-[0.1em] sm:hidden">Add</span>
           </button>
         </div>
       </div>
@@ -1042,7 +1043,7 @@ export default function Storefront() {
                 </div>
               </div>
               {filteredProducts.length ? (
-                <div className={`grid gap-4 ${viewMode === "grid" ? "sm:grid-cols-2 xl:grid-cols-3" : "grid-cols-1"}`}>
+                <div className={`grid gap-4 ${viewMode === "grid" ? "grid-cols-2 xl:grid-cols-3" : "grid-cols-1"}`}>
                   {filteredProducts.map((bike) => <ProductCard key={bike.id} bike={bike} wishlisted={wishlist.includes(bike.id)} viewMode={viewMode} formatPrice={formatPrice} onToggleWishlist={toggleWishlist} onQuickView={openProduct} onAdd={addToCart} />)}
                 </div>
               ) : (
