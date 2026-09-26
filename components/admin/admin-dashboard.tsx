@@ -8,6 +8,7 @@ import {
   Bike,
   Boxes,
   ChevronDown,
+  CreditCard,
   ExternalLink,
   Hash,
   LayoutDashboard,
@@ -61,6 +62,9 @@ type Order = {
   country: string;
   notes: string;
   delivery_method: string;
+  payment_method: string;
+  billing_address: string;
+  contact_channel: string;
   status: OrderStatus;
   subtotal: string | number;
   total: string | number;
@@ -811,6 +815,23 @@ function OrdersTab({
                           <p className="mt-2 text-xs leading-5 text-[#4e4a44]">{order.notes}</p>
                         </div>
                       ) : null}
+                      {order.payment_method ? (
+                        <div>
+                          <p className="eyebrow text-[#8d887f]">Payment</p>
+                          <p className="mt-2 flex items-center gap-2 text-xs text-[#4e4a44]">
+                            <CreditCard className="h-3.5 w-3.5 text-[var(--orange)]" />
+                            <span className="font-bold">{order.payment_method}</span>
+                            <span className="text-[#8d887f]">
+                              via {order.contact_channel === "whatsapp" ? "WhatsApp" : "email"}
+                            </span>
+                          </p>
+                          {order.billing_address && order.billing_address !== order.address ? (
+                            <p className="mt-1 text-[11px] leading-5 text-[#8d887f]">
+                              Billing: {order.billing_address}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : null}
                       <div>
                         <p className="eyebrow text-[#8d887f]">Status</p>
                         <select
@@ -1027,6 +1048,16 @@ function SettingsTab({
         description="Shown in the storefront footer and used for order notifications."
       />
       <div className="grid gap-4 border border-[#ddd9d1] bg-[var(--cream)] p-5 md:grid-cols-2">
+        <label className="block">
+          <span className="eyebrow text-[#8d887f]">Store name</span>
+          <input
+            value={form.storeName}
+            onChange={(event) => setForm({ ...form, storeName: event.target.value })}
+            placeholder="RIDE//BMX"
+            className="mt-2 h-11 w-full border border-[#d8d3ca] bg-white px-3 text-sm outline-none focus:border-[var(--ink)]"
+          />
+          <span className="mt-1 block text-[11px] text-[#8d887f]">Used in the payment request message customers send you.</span>
+        </label>
         <label className="block">
           <span className="eyebrow text-[#8d887f]">Contact email</span>
           <input

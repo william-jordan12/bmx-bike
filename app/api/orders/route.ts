@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import catalog from "@/data/bmx_bikes.json";
 import { getPool, initDb } from "@/lib/db";
 import { env } from "@/lib/env";
+import { isContactChannel, isPaymentMethod, paymentMethodLabel } from "@/lib/payments";
 import { isValidEmail } from "@/lib/settings";
 import type { BmxBike } from "@/lib/types";
 
@@ -19,6 +20,14 @@ type IncomingLine = {
   quantity?: unknown;
 };
 
+type PricedProduct = {
+  slug: string;
+  name: string;
+  price: number;
+  colors: string[];
+  sizes: string[];
+};
+
 function clean(value: unknown, maxLength: number): string {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
@@ -29,6 +38,47 @@ function makeReference(): string {
     suffix += REFERENCE_ALPHABET[Math.floor(Math.random() * REFERENCE_ALPHABET.length)];
   }
   return `BMX-${suffix}`;
+}
+
+function toStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map((entry) => String(entry)) : [];
+}
+
+async function loadPricedProducts(slugs: string[]): Promise<Map<string, PricedProduct>> {
+  const priced = new Map<string, PricedProduct>();
+  if (slugs.length === 0) return priced;
+
+  if (env.databaseUrl) {
+    const result = await getPool().query<{
+      slug: string;
+      name: string;
+      price: string | number;
+      colors: string[];
+      sizes: string[];
+    }>(
+      `SELECT slug, name, price, colors, sizes
+         FROM bmx_products
+        WHERE slug = ANY($1) AND active = TRUE`,
+      [slugs]
+    );
+    for (const row of result.rows) {
+      priced.set(row.slug, {
+        slug: row.slug,
+        name: row.name,
+        price: Number(row.price),
+        colors: toStringList(row.colors),
+        sizes: toStringList(row.sizes)
+      });
+    }
+    return priced;
+  }
+
+  for (const bike of products) {
+    if (slugs.includes(bike.id)) {
+      priced.set(bike.id, { slug: bike.id, name: bike.name, price: bike.price, colors: bike.colors, sizes: bike.sizes });
+    }
+  }
+  return priced;
 }
 
 export async function POST(req: Request) {
@@ -54,6 +104,9 @@ export async function POST(req: Request) {
   const city = clean(payload.city, 120);
   const country = clean(payload.country, 120);
   const notes = clean(payload.notes, 600);
+  const billingAddress = clean(payload.billingAddress, 240);
+  const contactChannel = isContactChannel(payload.contactChannel) ? payload.contactChannel : "email";
+  const paymentMethod = isPaymentMethod(payload.paymentMethod) ? payload.paymentMethod : "";
   const rawItems = Array.isArray(payload.items) ? (payload.items as IncomingLine[]) : [];
 
   if (!customerName || customerName.length < 2) {
@@ -65,27 +118,32 @@ export async function POST(req: Request) {
   if (!address || !city || !country) {
     return NextResponse.json({ error: "Please enter a full delivery address." }, { status: 400 });
   }
+  if (!paymentMethod) {
+    return NextResponse.json({ error: "Please choose a payment method." }, { status: 400 });
+  }
   if (rawItems.length === 0 || rawItems.length > MAX_LINES) {
     return NextResponse.json({ error: "Your bag is empty." }, { status: 400 });
   }
 
+  const slugs = Array.from(new Set(rawItems.map((line) => clean(line.productId, 80)).filter(Boolean)));
+  const priced = await loadPricedProducts(slugs);
+  if (priced.size === 0) {
+    return NextResponse.json({ error: "One of the items is no longer available." }, { status: 400 });
+  }
+
   const lines = rawItems.map((line) => {
     const productId = clean(line.productId, 80);
-    const product = products.find((bike) => bike.id === productId);
-    const quantity = Math.min(
-      MAX_QTY_PER_LINE,
-      Math.max(1, Math.floor(Number(line.quantity) || 0))
-    );
-    if (!product) {
-      return null;
-    }
+    const product = priced.get(productId);
+    if (!product) return null;
+    const quantity = Math.min(MAX_QTY_PER_LINE, Math.max(1, Math.floor(Number(line.quantity) || 0)));
     const color = clean(line.color, 40);
     const size = clean(line.size, 40);
     return {
       product,
       quantity,
-      color: product.colors.includes(color) ? color : product.colors[0],
-      size: product.sizes.includes(size) ? size : product.sizes[0]
+      label: product.colors.length && !product.colors.includes(color) ? product.name : `${product.name} (${color} / ${size})`,
+      color: product.colors.length && !product.colors.includes(color) ? product.colors[0] : color,
+      size: product.sizes.length && !product.sizes.includes(size) ? product.sizes[0] : size
     };
   });
 
@@ -95,6 +153,8 @@ export async function POST(req: Request) {
 
   const orderLines = lines.filter((line): line is NonNullable<typeof line> => line !== null);
   const subtotal = orderLines.reduce((sum, line) => sum + line.product.price * line.quantity, 0);
+  const billing = billingAddress || [address, city, country].filter(Boolean).join(", ");
+  const paymentLabel = paymentMethodLabel(paymentMethod);
 
   try {
     await initDb();
@@ -105,8 +165,8 @@ export async function POST(req: Request) {
       const orderResult = await client.query(
         `INSERT INTO bmx_orders (
            reference, customer_name, email, phone, address, city, country, notes,
-           delivery_method, status, subtotal, total
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'email','pending',$9,$9)
+           billing_address, payment_method, delivery_method, contact_channel, status, subtotal, total
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11,'pending',$12,$12)
          RETURNING id, reference, total, created_at`,
         [
           reference,
@@ -117,6 +177,9 @@ export async function POST(req: Request) {
           city,
           country,
           notes,
+          billing,
+          paymentLabel,
+          contactChannel,
           subtotal.toFixed(2)
         ]
       );
@@ -126,13 +189,26 @@ export async function POST(req: Request) {
         await client.query(
           `INSERT INTO bmx_order_items (order_id, product_slug, product_name, price, qty)
            VALUES ($1,$2,$3,$4,$5)`,
-          [order.id, line.product.id, `${line.product.name} (${line.color} / ${line.size})`, line.product.price.toFixed(2), line.quantity]
+          [order.id, line.product.slug, line.label, line.product.price.toFixed(2), line.quantity]
         );
       }
 
       await client.query("COMMIT");
       return NextResponse.json(
-        { order: { reference: String(order.reference), total: String(order.total), createdAt: order.created_at } },
+        {
+          order: {
+            reference: String(order.reference),
+            total: String(order.total),
+            createdAt: order.created_at,
+            paymentMethod: paymentLabel,
+            contactChannel
+          },
+          items: orderLines.map((line) => ({
+            name: line.label,
+            quantity: line.quantity,
+            price: line.product.price
+          }))
+        },
         { status: 201 }
       );
     } catch (err) {

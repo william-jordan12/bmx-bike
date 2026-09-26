@@ -89,6 +89,9 @@ const SCHEMA_SQL = [
   )`,
   `ALTER TABLE bmx_orders ADD COLUMN IF NOT EXISTS notes TEXT NOT NULL DEFAULT ''`,
   `ALTER TABLE bmx_orders ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending'`,
+  `ALTER TABLE bmx_orders ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE bmx_orders ADD COLUMN IF NOT EXISTS billing_address TEXT NOT NULL DEFAULT ''`,
+  `ALTER TABLE bmx_orders ADD COLUMN IF NOT EXISTS contact_channel TEXT NOT NULL DEFAULT 'email'`,
   `CREATE TABLE IF NOT EXISTS bmx_order_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     order_id UUID NOT NULL REFERENCES bmx_orders(id) ON DELETE CASCADE,
@@ -326,6 +329,7 @@ const DEMO_ORDERS: ReadonlyArray<DemoOrder> = [
 ];
 
 export const SETTING_KEYS = [
+  "store_name",
   "contact_email",
   "phone",
   "address",
@@ -342,6 +346,7 @@ type SettingKey = (typeof SETTING_KEYS)[number];
 export type { SettingKey };
 
 const SETTING_DEFAULTS: Record<SettingKey, string> = {
+  store_name: "RIDE//BMX",
   contact_email: env.contactEmail,
   phone: env.phone,
   address: env.address,

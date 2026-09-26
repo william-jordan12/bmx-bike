@@ -9,6 +9,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Copy,
   Headphones,
   Heart,
   LayoutGrid,
@@ -33,6 +34,14 @@ import {
   X
 } from "lucide-react";
 import bmxBikes from "@/data/bmx_bikes.json";
+import {
+  buildEmailUrl,
+  buildPaymentRequestMessage,
+  buildWhatsappUrl,
+  DEFAULT_PAYMENT_METHOD,
+  PAYMENT_METHODS,
+  type ContactChannel
+} from "@/lib/payments";
 import { DEFAULT_SITE_SETTINGS, isSocialLink, type SiteSettings } from "@/lib/site-settings";
 import type { BmxBike } from "@/lib/types";
 import ProductReviewSection from "@/components/product-review-section";
@@ -395,7 +404,21 @@ export default function Storefront() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutPending, setCheckoutPending] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
-  const [customer, setCustomer] = useState({ name: "", email: "", phone: "", address: "", city: "", country: "", notes: "" });
+  const [customer, setCustomer] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
+    city: "",
+    country: "",
+    notes: "",
+    billingAddress: "",
+    billingSameAsShipping: true
+  });
+  const [paymentMethod, setPaymentMethod] = useState<string>(DEFAULT_PAYMENT_METHOD);
+  const [contactChannel, setContactChannel] = useState<ContactChannel>("whatsapp");
+  const [paymentRequest, setPaymentRequest] = useState<{ reference: string; message: string } | null>(null);
+  const [copied, setCopied] = useState(false);
   const [products, setProducts] = useState<BmxBike[]>(fallbackProducts);
   const [categoryOptions, setCategoryOptions] = useState<ReadonlyArray<{ label: string; value: string }>>(
     DEFAULT_CATEGORY_OPTIONS
@@ -652,7 +675,16 @@ export default function Storefront() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...customer,
+          name: customer.name,
+          email: customer.email,
+          phone: customer.phone,
+          address: customer.address,
+          city: customer.city,
+          country: customer.country,
+          notes: customer.notes,
+          billingAddress: customer.billingSameAsShipping ? "" : customer.billingAddress,
+          paymentMethod,
+          contactChannel,
           items: cartItems.map((item) => ({
             productId: item.productId,
             color: item.color,
@@ -668,16 +700,62 @@ export default function Storefront() {
         return;
       }
 
+      const order = data.order as { reference: string; total: string; paymentMethod: string };
+      const items = (Array.isArray(data.items) ? data.items : []) as Array<{ name: string; quantity: number; price: number }>;
+      const message = buildPaymentRequestMessage({
+        storeName: siteSettings.storeName,
+        orderReference: order.reference,
+        paymentMethod: order.paymentMethod,
+        currency: siteSettings.currency || "USD",
+        total: Number(order.total),
+        items,
+        customerName: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+        shippingAddress: [customer.address, customer.city, customer.country].filter(Boolean).join(", "),
+        billingAddress: customer.billingSameAsShipping
+          ? [customer.address, customer.city, customer.country].filter(Boolean).join(", ")
+          : customer.billingAddress
+      });
+
+      setPaymentRequest({ reference: order.reference, message });
       setCartItems([]);
-      setCheckoutOpen(false);
       setCartOpen(false);
-      setCustomer({ name: "", email: "", phone: "", address: "", city: "", country: "", notes: "" });
-      setNotice(`Order ${data.order.reference} confirmed — check your email for updates`);
+      setCopied(false);
+      setNotice(`Order ${order.reference} reserved`);
     } catch {
       setCheckoutError("Network error. Please try again.");
     } finally {
       setCheckoutPending(false);
     }
+  };
+
+  const copyPaymentRequest = async () => {
+    if (!paymentRequest) return;
+    try {
+      await navigator.clipboard.writeText(paymentRequest.message);
+      setCopied(true);
+    } catch {
+      setCheckoutError("Could not copy automatically. Select the message above and copy it.");
+    }
+  };
+
+  const closeCheckout = () => {
+    setCheckoutOpen(false);
+    setCheckoutError("");
+    setPaymentRequest(null);
+    setCopied(false);
+    setCustomer({
+      name: "",
+      email: "",
+      phone: "",
+      address: "",
+      city: "",
+      country: "",
+      notes: "",
+      billingAddress: "",
+      billingSameAsShipping: true
+    });
   };
 
   const submitSearch = (event: React.FormEvent<HTMLFormElement>) => {
@@ -1089,10 +1167,50 @@ export default function Storefront() {
             </div>
             <div className="safe-bottom border-t border-[#dedad2] bg-white px-5 py-5 sm:px-7">
               {checkoutOpen ? (
+                <>
+              {paymentRequest ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="eyebrow text-[#8d887f]">Order {paymentRequest.reference}</p>
+                    <button type="button" onClick={closeCheckout} className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#77726b] hover:text-[var(--orange)]">Close</button>
+                  </div>
+                  <p className="text-xs leading-5 text-[#77726b]">
+                    Your order is reserved. Send this to us and we will reply with the payment instructions for {PAYMENT_METHODS.find((method) => method.id === paymentMethod)?.label}.
+                  </p>
+                  <pre className="max-h-56 overflow-y-auto whitespace-pre-wrap border border-[#d8d3ca] bg-[#f7f5f1] p-3 text-[11px] leading-5 text-[#3f3b35]">{paymentRequest.message}</pre>
+                  {checkoutError ? <p className="border border-[#e8c3b8] bg-[#fdf1ec] px-3 py-2 text-xs font-semibold text-[#a5372a]" role="alert">{checkoutError}</p> : null}
+                  <div className="grid grid-cols-2 gap-3">
+                    <a
+                      href={buildWhatsappUrl(siteSettings.whatsapp, paymentRequest.message)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-disabled={!siteSettings.whatsapp}
+                      onClick={(event) => { if (!siteSettings.whatsapp) event.preventDefault(); }}
+                      className={`flex h-12 items-center justify-center gap-2 text-xs font-extrabold uppercase tracking-[0.12em] text-white transition ${siteSettings.whatsapp ? "bg-[var(--orange)] hover:bg-[#151515]" : "cursor-not-allowed bg-[#cfcac1]"}`}
+                    >
+                      <MessageCircle className="h-4 w-4" /> WhatsApp
+                    </a>
+                    <a
+                      href={buildEmailUrl(siteSettings.contactEmail, `Payment for order ${paymentRequest.reference}`, paymentRequest.message)}
+                      className="flex h-12 items-center justify-center gap-2 bg-[#151515] text-xs font-extrabold uppercase tracking-[0.12em] text-white transition hover:bg-[var(--orange)]"
+                    >
+                      <Mail className="h-4 w-4" /> Email
+                    </a>
+                  </div>
+                  <button type="button" onClick={copyPaymentRequest} className="flex h-11 w-full items-center justify-center gap-2 border border-[#d8d3ca] text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#77726b] transition hover:border-[var(--orange)] hover:text-[var(--orange)]">
+                    <Copy className="h-3.5 w-3.5" /> {copied ? "Copied" : "Copy message"}
+                  </button>
+                  {!siteSettings.whatsapp ? (
+                    <p className="text-[11px] leading-5 text-[#96918a]">
+                      WhatsApp is not set up yet, so use email. The store owner can add a WhatsApp number in Settings to enable the WhatsApp button.
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
                 <form onSubmit={placeOrder} className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="eyebrow text-[#8d887f]">Checkout</p>
-                    <button type="button" onClick={() => { setCheckoutOpen(false); setCheckoutError(""); }} className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#77726b] hover:text-[var(--orange)]">Back to bag</button>
+                    <button type="button" onClick={closeCheckout} className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#77726b] hover:text-[var(--orange)]">Back to bag</button>
                   </div>
                   <input required value={customer.name} onChange={(event) => setCustomer({ ...customer, name: event.target.value })} placeholder="Full name" autoComplete="name" className="h-11 w-full border border-[#d8d3ca] px-3 text-sm outline-none focus:border-[var(--orange)]" />
                   <input required type="email" value={customer.email} onChange={(event) => setCustomer({ ...customer, email: event.target.value })} placeholder="Email" autoComplete="email" className="h-11 w-full border border-[#d8d3ca] px-3 text-sm outline-none focus:border-[var(--orange)]" />
@@ -1102,16 +1220,84 @@ export default function Storefront() {
                     <input required value={customer.city} onChange={(event) => setCustomer({ ...customer, city: event.target.value })} placeholder="City" autoComplete="address-level2" className="h-11 w-full border border-[#d8d3ca] px-3 text-sm outline-none focus:border-[var(--orange)]" />
                     <input required value={customer.country} onChange={(event) => setCustomer({ ...customer, country: event.target.value })} placeholder="Country" autoComplete="country-name" className="h-11 w-full border border-[#d8d3ca] px-3 text-sm outline-none focus:border-[var(--orange)]" />
                   </div>
+                  <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-[#77726b]">
+                    <input
+                      type="checkbox"
+                      checked={customer.billingSameAsShipping}
+                      onChange={(event) => setCustomer({ ...customer, billingSameAsShipping: event.target.checked })}
+                      className="h-4 w-4 accent-[var(--orange)]"
+                    />
+                    Billing address is the same as shipping
+                  </label>
+                  {!customer.billingSameAsShipping ? (
+                    <input required value={customer.billingAddress} onChange={(event) => setCustomer({ ...customer, billingAddress: event.target.value })} placeholder="Billing address" className="h-11 w-full border border-[#d8d3ca] px-3 text-sm outline-none focus:border-[var(--orange)]" />
+                  ) : null}
+                  <fieldset>
+                    <legend className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#77726b]">Payment method</legend>
+                    <div className="grid grid-cols-2 gap-2">
+                      {PAYMENT_METHODS.map((method) => {
+                        const active = paymentMethod === method.id;
+                        return (
+                          <label
+                            key={method.id}
+                            className={`flex cursor-pointer items-start gap-2 border p-2 transition ${active ? "border-[var(--orange)] bg-[#fdf1ec]" : "border-[#d8d3ca] hover:border-[#b9b3a8]"}`}
+                          >
+                            <input
+                              type="radio"
+                              name="payment-method"
+                              value={method.id}
+                              checked={active}
+                              onChange={() => setPaymentMethod(method.id)}
+                              className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--orange)]"
+                            />
+                            <span className="min-w-0">
+                              <span className="block truncate text-xs font-bold text-[#3f3b35]">{method.label}</span>
+                              <span className="block truncate text-[10px] text-[#96918a]">{method.hint}</span>
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                  <fieldset>
+                    <legend className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[#77726b]">Send my payment request via</legend>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(["whatsapp", "email"] as const).map((channel) => {
+                        const active = contactChannel === channel;
+                        const unavailable = channel === "whatsapp" && !siteSettings.whatsapp;
+                        return (
+                          <label
+                            key={channel}
+                            className={`flex cursor-pointer items-center gap-2 border p-2 text-xs font-bold capitalize transition ${active ? "border-[var(--orange)] bg-[#fdf1ec] text-[#3f3b35]" : "border-[#d8d3ca] text-[#77726b] hover:border-[#b9b3a8]"}`}
+                          >
+                            <input
+                              type="radio"
+                              name="contact-channel"
+                              value={channel}
+                              checked={active}
+                              disabled={unavailable}
+                              onChange={() => setContactChannel(channel)}
+                              className="h-3.5 w-3.5 accent-[var(--orange)]"
+                            />
+                            {channel === "whatsapp" ? "WhatsApp" : "Email"}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
                   <textarea value={customer.notes} onChange={(event) => setCustomer({ ...customer, notes: event.target.value })} placeholder="Delivery notes (optional)" rows={2} className="w-full resize-none border border-[#d8d3ca] px-3 py-2 text-sm outline-none focus:border-[var(--orange)]" />
                   {checkoutError ? <p className="border border-[#e8c3b8] bg-[#fdf1ec] px-3 py-2 text-xs font-semibold text-[#a5372a]" role="alert">{checkoutError}</p> : null}
                   <div className="flex items-center justify-between border-t border-[#dedad2] pt-3"><span className="text-sm font-semibold text-[#77726b]">Total</span><span className="text-xl font-extrabold">{formatPrice(cartSubtotal)}</span></div>
-                  <button type="submit" disabled={checkoutPending} className="flex h-12 w-full items-center justify-center gap-2 bg-[var(--orange)] text-xs font-extrabold uppercase tracking-[0.12em] text-white transition hover:bg-[#151515] disabled:opacity-60">{checkoutPending ? "Placing order…" : "Place order"}<ArrowRight className="h-4 w-4" /></button>
+                  <button type="submit" disabled={checkoutPending} className="flex h-12 w-full items-center justify-center gap-2 bg-[var(--orange)] text-xs font-extrabold uppercase tracking-[0.12em] text-white transition hover:bg-[#151515] disabled:opacity-60">{checkoutPending ? "Reserving order…" : "Reserve order & get payment details"}<ArrowRight className="h-4 w-4" /></button>
+                  <p className="text-[11px] leading-5 text-[#96918a]">No card is charged here. We send payment instructions for the method you choose.</p>
                 </form>
+              )}
+                </>
               ) : (
                 <>
                   <div className="flex items-center justify-between"><span className="text-sm font-semibold text-[#77726b]">Subtotal</span><span className="text-2xl font-extrabold">{formatPrice(cartSubtotal)}</span></div>
                   <p className="mt-1 text-[11px] text-[#96918a]">Shipping, taxes and discounts calculated at checkout.</p>
-                  <button type="button" onClick={() => { if (cartItems.length) { setCheckoutError(""); setCheckoutOpen(true); } else { setNotice("Your bag is waiting for a bike"); } }} className="mt-5 flex h-12 w-full items-center justify-center gap-2 bg-[var(--orange)] text-xs font-extrabold uppercase tracking-[0.12em] text-white transition hover:bg-[#151515]">Checkout <ArrowRight className="h-4 w-4" /></button>
+                  <button type="button" onClick={() => { if (cartItems.length) { setCheckoutError(""); setPaymentRequest(null); setCheckoutOpen(true); } else { setNotice("Your bag is waiting for a bike"); } }} className="mt-5 flex h-12 w-full items-center justify-center gap-2 bg-[var(--orange)] text-xs font-extrabold uppercase tracking-[0.12em] text-white transition hover:bg-[#151515]">Checkout <ArrowRight className="h-4 w-4" /></button>
                   <div className="mt-3 flex items-center justify-center gap-2 text-[10px] font-semibold text-[#858078]"><ShieldCheck className="h-3.5 w-3.5 text-[var(--orange)]" /> Secure checkout · 100-day returns</div>
                 </>
               )}

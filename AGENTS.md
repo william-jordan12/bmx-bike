@@ -48,7 +48,16 @@ Use `npm.cmd`, not `npm`; PowerShell blocks the bare shim.
 - `bmx_reviews` holds customer reviews with a `pending -> approved | rejected` moderation flow. Submissions are never public until approved.
 - Submissions are rate limited to 4 per product per author per hour and a `website` honeypot field must stay empty.
 - `verified` is set automatically when the author's name matches a customer with a delivered order for that product.
+- `GET /api/reviews` returns every approved review across the store, so `/reviews` shows real written reviews instead of catalog numbers.
 - `GET /api/products` replaces the seeded `rating`/`review_count` with the real approved-review average whenever a product has approved reviews, and falls back to the seeded numbers otherwise.
+
+## Payment requests
+- The 11 payment methods live in `lib/payments.ts` (`PAYMENT_METHODS`). `isPaymentMethod` is the only gate: the API rejects anything not in that list.
+- Checkout reserves the order first, then builds the customer's message with `buildPaymentRequestMessage` and hands back WhatsApp (`wa.me`) and `mailto:` links. Nothing is charged in-browser.
+- Orders record `payment_method`, `billing_address` and `contact_channel`. `delivery_method` is kept in sync with `contact_channel` for older rows.
+- `store_name` in `bmx_settings` is what fills `[Store Name]` in the message. The WhatsApp button stays disabled until a WhatsApp number is saved in Settings.
+- Orders are priced from `bmx_products`, so products added in the admin are orderable. The JSON catalog is only a fallback when `DATABASE_URL` is missing.
+- `lib-hooks` lint note: `setState` calls belong inside the `void (async () => {})()` of an effect, and the `let active` flag plus the returned cleanup must be declared in the effect body, not the IIFE. Putting `setState` directly in the effect body trips `react-hooks/set-state-in-effect`; returning the cleanup from inside the IIFE silently never runs it.
 
 ## Deploy prerequisites
 - Host env vars: `DATABASE_URL`, and `ADMIN_INITIAL_PASSWORD` only for a brand new database.

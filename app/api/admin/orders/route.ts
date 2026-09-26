@@ -29,7 +29,8 @@ export async function GET(req: Request) {
 
     const result = await getPool().query(
       `SELECT o.id, o.reference, o.customer_name, o.email, o.phone, o.address, o.city, o.country,
-              o.notes, o.delivery_method, o.status, o.subtotal, o.total, o.created_at, o.updated_at,
+              o.notes, o.delivery_method, o.payment_method, o.billing_address, o.contact_channel,
+    o.status, o.subtotal, o.total, o.created_at, o.updated_at,
               COALESCE(SUM(oi.qty), 0)::int AS item_count
        FROM bmx_orders o
        LEFT JOIN bmx_order_items oi ON oi.order_id = o.id

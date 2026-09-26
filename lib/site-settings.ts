@@ -1,4 +1,5 @@
 export interface SiteSettings {
+  storeName: string;
   contactEmail: string;
   phone: string;
   address: string;
@@ -11,6 +12,7 @@ export interface SiteSettings {
 }
 
 export const SITE_SETTING_FIELDS: ReadonlyArray<keyof SiteSettings> = [
+  "storeName",
   "contactEmail",
   "phone",
   "address",
@@ -23,6 +25,7 @@ export const SITE_SETTING_FIELDS: ReadonlyArray<keyof SiteSettings> = [
 ];
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
+  storeName: "RIDE//BMX",
   contactEmail: "support@ridebmx.com",
   phone: "+1 (555) 019-2669",
   address: "1420 Ironline Ave, Austin, TX 78702",

@@ -7,6 +7,7 @@ export type { SiteSettings };
 type SettingField = keyof SiteSettings;
 
 const SETTING_ENTRIES: ReadonlyArray<{ key: SettingKey; field: SettingField }> = [
+  { key: "store_name", field: "storeName" },
   { key: "contact_email", field: "contactEmail" },
   { key: "phone", field: "phone" },
   { key: "address", field: "address" },
@@ -48,6 +49,7 @@ export function isValidWhatsApp(value: string): boolean {
 
 export function settingsFallback(): SiteSettings {
   return {
+    storeName: DEFAULT_SITE_SETTINGS.storeName,
     contactEmail: env.contactEmail || DEFAULT_SITE_SETTINGS.contactEmail,
     phone: env.phone || DEFAULT_SITE_SETTINGS.phone,
     address: env.address || DEFAULT_SITE_SETTINGS.address,
@@ -62,6 +64,7 @@ export function settingsFallback(): SiteSettings {
 
 function normalizeSettings(values: SiteSettings): SiteSettings {
   return {
+    storeName: values.storeName.trim() || DEFAULT_SITE_SETTINGS.storeName,
     contactEmail: values.contactEmail.trim(),
     phone: values.phone.trim(),
     address: values.address.trim(),
